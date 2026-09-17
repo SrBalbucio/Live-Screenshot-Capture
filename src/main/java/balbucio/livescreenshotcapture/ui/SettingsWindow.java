@@ -100,6 +100,8 @@ public class SettingsWindow {
         balloon.setSelected(current.trayBalloon());
         CheckBox sound = new CheckBox("Beep on capture");
         sound.setSelected(current.sound());
+        CheckBox keepOriginal = new CheckBox("Also save original (non-upscaled) camera image");
+        keepOriginal.setSelected(current.keepOriginal());
         CheckBox launchOnStartup = new CheckBox("Launch on Windows startup");
         launchOnStartup.setSelected(current.launchOnStartup());
         ComboBox<Integer> upscaleBox = new ComboBox<>();
@@ -128,7 +130,8 @@ public class SettingsWindow {
             Settings updated = new Settings(outputField.getText().trim(), current.hotkeys(),
                     balloon.isSelected(), sound.isSelected(), startMinimized.isSelected(),
                     closeToTray.isSelected(), launchOnStartup.isSelected(),
-                    current.customPresets(), upscaleBox.getValue());
+                    current.customPresets(), upscaleBox.getValue(),
+                    keepOriginal.isSelected());
             try {
                 service.save(updated);
                 try {
@@ -150,7 +153,8 @@ public class SettingsWindow {
                 new HBox(8, outputField, browse),
                 new HBox(8, new Label("Camera upscale:"), upscaleBox,
                         new Label("(bicubic + sharpen, files get @Nx suffix)")),
-                startMinimized, closeToTray, balloon, sound, launchOnStartup, startupInfo, save);
+                startMinimized, closeToTray, balloon, sound, keepOriginal, launchOnStartup,
+                startupInfo, save);
         root.setPadding(new Insets(14));
         Tab tab = new Tab("General");
         tab.setContent(root);
@@ -201,7 +205,7 @@ public class SettingsWindow {
             Settings updated = new Settings(current.outputDir(), stored, current.trayBalloon(),
                     current.sound(), current.startMinimized(), current.closeToTray(),
                     current.launchOnStartup(), current.customPresets(),
-                    current.cameraUpscale());
+                    current.cameraUpscale(), current.keepOriginal());
             try {
                 service.save(updated);
                 listener.onHotkeysSaved(new EnumMap<>(pending));
@@ -292,7 +296,7 @@ public class SettingsWindow {
                 service.save(new Settings(current.outputDir(), current.hotkeys(),
                         current.trayBalloon(), current.sound(), current.startMinimized(),
                         current.closeToTray(), current.launchOnStartup(), customs,
-                        current.cameraUpscale()));
+                        current.cameraUpscale(), current.keepOriginal()));
                 reload.run();
                 listener.onPresetsChanged();
                 notifier.accept("Preset created: " + preset.name());
@@ -313,7 +317,7 @@ public class SettingsWindow {
                 service.save(new Settings(current.outputDir(), current.hotkeys(),
                         current.trayBalloon(), current.sound(), current.startMinimized(),
                         current.closeToTray(), current.launchOnStartup(), customs,
-                        current.cameraUpscale()));
+                        current.cameraUpscale(), current.keepOriginal()));
                 reload.run();
                 listener.onPresetsChanged();
             } catch (Exception ex) {

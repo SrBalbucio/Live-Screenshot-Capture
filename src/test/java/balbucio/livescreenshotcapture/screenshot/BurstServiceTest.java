@@ -79,8 +79,34 @@ class BurstServiceTest {
     }
 
     @Test
-    void burstLabelFormat() {
-        assertThat(StorageService.burstLabel(-1000)).isEqualTo("-1000");
+    void burstWithKeepOriginalLinksOriginal(@TempDir Path tmp) throws Exception {
+        ScreenRegion stream = new ScreenRegion(0, 0, 64, 64);
+        CaptureService captureService = serviceWithFrames(stream);
+        StorageService storage = new StorageService(tmp, "tester", "png", 0.92f);
+        ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r);
+            t.setDaemon(true);
+            return t;
+        });
+        try {
+            BurstService burst = new BurstService(captureService, new RegionService(), storage,
+                    Runnable::run, scheduler, List.of(0L), List.of(),
+                    new BicubicUpscaler(), 2, true);
+            List<BurstFrame> frames = burst.burstDetailed(CaptureRegion.CAMERA)
+                    .get(5, TimeUnit.SECONDS);
+            assertThat(frames).hasSize(1);
+            BurstFrame frame = frames.get(0);
+            assertThat(frame.path().getFileName().toString()).contains("@2x");
+            assertThat(frame.originalPath()).isNotNull();
+            assertThat(java.nio.file.Files.exists(frame.originalPath())).isTrue();
+            assertThat(frame.originalPath().getFileName().toString()).doesNotContain("@");
+        } finally {
+            scheduler.shutdownNow();
+        }
+    }
+
+    @Test
+    void burstLabelFormat() {        assertThat(StorageService.burstLabel(-1000)).isEqualTo("-1000");
         assertThat(StorageService.burstLabel(-500)).isEqualTo("-500");
         assertThat(StorageService.burstLabel(0)).isEqualTo("000");
         assertThat(StorageService.burstLabel(500)).isEqualTo("+500");

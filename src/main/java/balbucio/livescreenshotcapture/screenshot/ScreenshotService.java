@@ -23,25 +23,38 @@ public class ScreenshotService {
     private final Executor ioExecutor;
     private final ImageUpscaler upscaler;
     private volatile int cameraUpscale;
+    private volatile boolean keepOriginal;
 
     public ScreenshotService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor) {
-        this(captureService, regionService, storageService, ioExecutor, null, 1);
+        this(captureService, regionService, storageService, ioExecutor, null, 1, false);
     }
 
     public ScreenshotService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor, ImageUpscaler upscaler,
             int cameraUpscale) {
+        this(captureService, regionService, storageService, ioExecutor, upscaler, cameraUpscale,
+                false);
+    }
+
+    public ScreenshotService(CaptureService captureService, RegionService regionService,
+            StorageService storageService, Executor ioExecutor, ImageUpscaler upscaler,
+            int cameraUpscale, boolean keepOriginal) {
         this.captureService = captureService;
         this.regionService = regionService;
         this.storageService = storageService;
         this.ioExecutor = ioExecutor;
         this.upscaler = upscaler;
         this.cameraUpscale = cameraUpscale;
+        this.keepOriginal = keepOriginal;
     }
 
     public void setCameraUpscale(int cameraUpscale) {
         this.cameraUpscale = cameraUpscale;
+    }
+
+    public void setKeepOriginal(boolean keepOriginal) {
+        this.keepOriginal = keepOriginal;
     }
 
     public CompletableFuture<Optional<Path>> capture(CaptureRegion region) {
@@ -68,6 +81,9 @@ public class ScreenshotService {
         return CompletableFuture.supplyAsync(() -> {
             try {
                 Path p = storageService.save(out, region.id(), ts, upscale);
+                if (keepOriginal && upscale > 1) {
+                    storageService.save(cropped, region.id(), ts, 1);
+                }
                 return Optional.of(p);
             } catch (Exception e) {
                 log.error("Failed to save screenshot", e);

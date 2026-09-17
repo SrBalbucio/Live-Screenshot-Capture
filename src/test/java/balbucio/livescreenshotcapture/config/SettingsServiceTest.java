@@ -25,13 +25,14 @@ class SettingsServiceTest {
                 Map.of("CAPTURE_CAMERA", "Ctrl+Alt+C",
                         "CAPTURE_STREAM", "Ctrl+Alt+S",
                         "CAPTURE_BURST", "Ctrl+Alt+B"),
-                false, true, true, false, false, List.of(custom), 3);
+                false, true, true, false, false, List.of(custom), 3, true);
         service.save(updated);
 
         Settings reloaded = service.load();
         assertThat(reloaded.outputDir()).isEqualTo("D:/caps");
         assertThat(reloaded.customPresets()).hasSize(1);
         assertThat(reloaded.effectiveCameraUpscale()).isEqualTo(3);
+        assertThat(reloaded.keepOriginal()).isTrue();
         assertThat(service.resolveOutputDir(reloaded)).isEqualTo(Path.of("D:/caps"));
 
         Map<HotkeyAction, Set<Integer>> bindings = service.resolveBindings(reloaded);
@@ -44,7 +45,7 @@ class SettingsServiceTest {
     void invalidComboFallsBackToDefault(@TempDir Path tmp) throws Exception {
         SettingsService service = new SettingsService(tmp);
         Settings bad = new Settings("captures", Map.of("CAPTURE_CAMERA", "CTRL+NOPE"),
-                true, false, false, true, false, List.of(), 0);
+                true, false, false, true, false, List.of(), 0, false);
         service.save(bad);
         Map<HotkeyAction, Set<Integer>> bindings =
                 service.resolveBindings(service.load());
@@ -58,8 +59,9 @@ class SettingsServiceTest {
         SettingsService service = new SettingsService(tmp);
         assertThat(service.load().effectiveCameraUpscale()).isEqualTo(2);
         Settings legacy = new Settings("captures", Map.of(), true, false, false, true, false,
-                List.of(), 0);
+                List.of(), 0, false);
         assertThat(legacy.effectiveCameraUpscale()).isEqualTo(2);
+        assertThat(service.load().keepOriginal()).isFalse();
     }
 
     @Test

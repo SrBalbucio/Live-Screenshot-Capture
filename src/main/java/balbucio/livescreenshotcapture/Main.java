@@ -106,7 +106,8 @@ public class Main extends Application {
             return t;
         });
         screenshotService = new ScreenshotService(captureService, regionService, storageService,
-                ioExecutor, new BicubicUpscaler(), settings.effectiveCameraUpscale());
+                ioExecutor, new BicubicUpscaler(), settings.effectiveCameraUpscale(),
+                settings.keepOriginal());
         burstScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "burst-scheduler");
             t.setDaemon(true);
@@ -115,7 +116,7 @@ public class Main extends Application {
         burstService = new BurstService(captureService, regionService, storageService,
                 ioExecutor, burstScheduler, BurstService.DEFAULT_PAST_OFFSETS,
                 BurstService.DEFAULT_FUTURE_OFFSETS, new BicubicUpscaler(),
-                settings.effectiveCameraUpscale());
+                settings.effectiveCameraUpscale(), settings.keepOriginal());
         notifications = new NotificationService();
         hotkeyService = new HotkeyService();
         hotkeyService.setBindings(settingsService.resolveBindings(settings));
@@ -400,6 +401,8 @@ public class Main extends Application {
                 int upscale = updated.effectiveCameraUpscale();
                 screenshotService.setCameraUpscale(upscale);
                 burstService.setCameraUpscale(upscale);
+                screenshotService.setKeepOriginal(updated.keepOriginal());
+                burstService.setKeepOriginal(updated.keepOriginal());
                 applyFeedbackSettings();
             }
 
@@ -705,10 +708,25 @@ public class Main extends Application {
                 return;
             }
             List<Path> all = frames.stream().map(BurstFrame::path).toList();
+            List<Path> allFiles = new ArrayList<>(all);
+            Map<Path, Path> originalByMain = new java.util.HashMap<>();
+            for (BurstFrame f : frames) {
+                if (f.originalPath() != null) {
+                    allFiles.add(f.originalPath());
+                    originalByMain.put(f.path(), f.originalPath());
+                }
+            }
             Platform.runLater(() -> BurstGalleryWindow.show(window(), frames, keep -> {
                 try {
-                    List<Path> kept = new BurstSelectionService().keepOnly(all, keep);
-                    notifications.notify("\uD83D\uDCF8 Burst: kept " + kept.size() + " of "
+                    Set<Path> keepFiles = new java.util.HashSet<>(keep);
+                    keep.forEach(p -> {
+                        Path original = originalByMain.get(p);
+                        if (original != null) {
+                            keepFiles.add(original);
+                        }
+                    });
+                    new BurstSelectionService().keepOnly(allFiles, keepFiles);
+                    notifications.notify("\uD83D\uDCF8 Burst: kept " + keep.size() + " of "
                             + all.size() + " frames");
                 } catch (Exception e) {
                     notifications.notify("Burst cleanup failed: " + e.getMessage());

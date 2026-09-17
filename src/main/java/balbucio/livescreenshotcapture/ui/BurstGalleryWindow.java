@@ -82,7 +82,7 @@ public class BurstGalleryWindow {
         });
 
         Label hint = new Label("Uncheck what you don't want. Double-click a thumbnail for full size. "
-                + "Closing this window keeps everything.");
+                + "Saved originals follow the same choice. Closing this window keeps everything.");
         hint.setWrapText(true);
         VBox root = new VBox(10, hint, new ScrollPane(cards),
                 new HBox(8, keepSelected, keepAll, discardAll));

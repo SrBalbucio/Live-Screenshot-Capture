@@ -33,24 +33,33 @@ public class BurstService {
     private final List<Long> futureOffsets;
     private final ImageUpscaler upscaler;
     private volatile int cameraUpscale;
+    private volatile boolean keepOriginal;
 
     public BurstService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor, ScheduledExecutorService scheduler) {
         this(captureService, regionService, storageService, ioExecutor, scheduler,
-                DEFAULT_PAST_OFFSETS, DEFAULT_FUTURE_OFFSETS, null, 1);
+                DEFAULT_PAST_OFFSETS, DEFAULT_FUTURE_OFFSETS, null, 1, false);
     }
 
     public BurstService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor, ScheduledExecutorService scheduler,
             List<Long> pastOffsets, List<Long> futureOffsets) {
         this(captureService, regionService, storageService, ioExecutor, scheduler,
-                pastOffsets, futureOffsets, null, 1);
+                pastOffsets, futureOffsets, null, 1, false);
     }
 
     public BurstService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor, ScheduledExecutorService scheduler,
             List<Long> pastOffsets, List<Long> futureOffsets, ImageUpscaler upscaler,
             int cameraUpscale) {
+        this(captureService, regionService, storageService, ioExecutor, scheduler,
+                pastOffsets, futureOffsets, upscaler, cameraUpscale, false);
+    }
+
+    public BurstService(CaptureService captureService, RegionService regionService,
+            StorageService storageService, Executor ioExecutor, ScheduledExecutorService scheduler,
+            List<Long> pastOffsets, List<Long> futureOffsets, ImageUpscaler upscaler,
+            int cameraUpscale, boolean keepOriginal) {
         this.captureService = captureService;
         this.regionService = regionService;
         this.storageService = storageService;
@@ -60,10 +69,15 @@ public class BurstService {
         this.futureOffsets = List.copyOf(futureOffsets);
         this.upscaler = upscaler;
         this.cameraUpscale = cameraUpscale;
+        this.keepOriginal = keepOriginal;
     }
 
     public void setCameraUpscale(int cameraUpscale) {
         this.cameraUpscale = cameraUpscale;
+    }
+
+    public void setKeepOriginal(boolean keepOriginal) {
+        this.keepOriginal = keepOriginal;
     }
 
     public CompletableFuture<List<Path>> burst(CaptureRegion region) {
@@ -118,8 +132,12 @@ public class BurstService {
                 : cropped;
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return Optional.of(new BurstFrame(
-                        storageService.saveBurst(out, base, offset, upscale), offset));
+                Path saved = storageService.saveBurst(out, base, offset, upscale);
+                Path original = null;
+                if (keepOriginal && upscale > 1) {
+                    original = storageService.saveBurst(cropped, base, offset, 1);
+                }
+                return Optional.of(new BurstFrame(saved, offset, original));
             } catch (Exception e) {
                 log.error("Burst: failed to save frame {}", offset, e);
                 return Optional.empty();
