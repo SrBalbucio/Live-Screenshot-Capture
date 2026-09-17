@@ -25,7 +25,12 @@ All capture hotkeys are editable in Settings → Hotkeys. `Ctrl+1..9` always swi
 
 - Profiles: `%APPDATA%\LiveScreenshotCapture\profiles\*.json`
 - Settings: `%APPDATA%\LiveScreenshotCapture\settings.json`
+- Logs: `%APPDATA%\LiveScreenshotCapture\logs\app.log` (rolling, 14 days / 100 MB)
 - Captures: `captures\<profile>\<yyyy-MM-dd>\{camera,stream,burst}\` (change in Settings)
+
+Only one instance runs at a time (guarded by `app.lock`).
+Captures are auto-cleaned oldest-first when over the quota in Settings → General
+(default 2048 MB, 0 = unlimited).
 
 ## Package (Windows app image)
 

@@ -102,6 +102,42 @@ public class SettingsWindow {
         sound.setSelected(current.sound());
         CheckBox keepOriginal = new CheckBox("Also save original (non-upscaled) camera image");
         keepOriginal.setSelected(current.keepOriginal());
+        Spinner<Integer> quotaBox = new Spinner<>(0, 65536, (int) Math.min(65536,
+                current.storageQuotaMb() <= 0 ? 2048 : current.storageQuotaMb()), 256);
+        quotaBox.setEditable(true);
+        Label usageLabel = new Label();
+        Runnable refreshUsage = () -> {
+            try {
+                Path dir = Paths.get(outputField.getText().trim());
+                long bytes = new balbucio.livescreenshotcapture.storage.StorageCleanup()
+                        .sizeOf(dir.isAbsolute() ? dir
+                                : Paths.get("").toAbsolutePath().resolve(dir));
+                usageLabel.setText(String.format("Using %.1f MB (quota: %s)",
+                        bytes / (1024.0 * 1024.0),
+                        quotaBox.getValue() <= 0 ? "unlimited"
+                                : quotaBox.getValue() + " MB"));
+            } catch (Exception ex) {
+                usageLabel.setText("Could not measure captures folder.");
+            }
+        };
+        refreshUsage.run();
+        Button cleanNow = new Button("Clean now");
+        cleanNow.setOnAction(e -> {
+            try {
+                Path dir = Paths.get(outputField.getText().trim());
+                Path resolved = dir.isAbsolute() ? dir
+                        : Paths.get("").toAbsolutePath().resolve(dir);
+                long quota = quotaBox.getValue() <= 0 ? Long.MAX_VALUE
+                        : quotaBox.getValue() * 1024L * 1024L;
+                var result = new balbucio.livescreenshotcapture.storage.StorageCleanup()
+                        .enforceQuota(resolved, quota);
+                notifier.accept(String.format("Cleanup: deleted %d files, freed %.1f MB.",
+                        result.deletedFiles(), result.freedBytes() / (1024.0 * 1024.0)));
+                refreshUsage.run();
+            } catch (Exception ex) {
+                notifier.accept("Cleanup failed: " + ex.getMessage());
+            }
+        });
         CheckBox launchOnStartup = new CheckBox("Launch on Windows startup");
         launchOnStartup.setSelected(current.launchOnStartup());
         ComboBox<Integer> upscaleBox = new ComboBox<>();
@@ -131,7 +167,7 @@ public class SettingsWindow {
                     balloon.isSelected(), sound.isSelected(), startMinimized.isSelected(),
                     closeToTray.isSelected(), launchOnStartup.isSelected(),
                     current.customPresets(), upscaleBox.getValue(),
-                    keepOriginal.isSelected());
+                    keepOriginal.isSelected(), quotaBox.getValue());
             try {
                 service.save(updated);
                 try {
@@ -151,6 +187,8 @@ public class SettingsWindow {
         VBox root = new VBox(10,
                 new Label("Captures folder:"),
                 new HBox(8, outputField, browse),
+                new HBox(8, new Label("Quota MB (0 = unlimited):"), quotaBox, cleanNow),
+                usageLabel,
                 new HBox(8, new Label("Camera upscale:"), upscaleBox,
                         new Label("(bicubic + sharpen, files get @Nx suffix)")),
                 startMinimized, closeToTray, balloon, sound, keepOriginal, launchOnStartup,
@@ -205,7 +243,8 @@ public class SettingsWindow {
             Settings updated = new Settings(current.outputDir(), stored, current.trayBalloon(),
                     current.sound(), current.startMinimized(), current.closeToTray(),
                     current.launchOnStartup(), current.customPresets(),
-                    current.cameraUpscale(), current.keepOriginal());
+                    current.cameraUpscale(), current.keepOriginal(),
+                    current.storageQuotaMb());
             try {
                 service.save(updated);
                 listener.onHotkeysSaved(new EnumMap<>(pending));
@@ -296,7 +335,8 @@ public class SettingsWindow {
                 service.save(new Settings(current.outputDir(), current.hotkeys(),
                         current.trayBalloon(), current.sound(), current.startMinimized(),
                         current.closeToTray(), current.launchOnStartup(), customs,
-                        current.cameraUpscale(), current.keepOriginal()));
+                        current.cameraUpscale(), current.keepOriginal(),
+                        current.storageQuotaMb()));
                 reload.run();
                 listener.onPresetsChanged();
                 notifier.accept("Preset created: " + preset.name());
@@ -317,7 +357,8 @@ public class SettingsWindow {
                 service.save(new Settings(current.outputDir(), current.hotkeys(),
                         current.trayBalloon(), current.sound(), current.startMinimized(),
                         current.closeToTray(), current.launchOnStartup(), customs,
-                        current.cameraUpscale(), current.keepOriginal()));
+                        current.cameraUpscale(), current.keepOriginal(),
+                        current.storageQuotaMb()));
                 reload.run();
                 listener.onPresetsChanged();
             } catch (Exception ex) {

@@ -6,6 +6,7 @@ import balbucio.livescreenshotcapture.capture.RobotCaptureBackend;
 import balbucio.livescreenshotcapture.config.AppConfig;
 import balbucio.livescreenshotcapture.config.Settings;
 import balbucio.livescreenshotcapture.config.SettingsService;
+import balbucio.livescreenshotcapture.config.SingleInstance;
 import balbucio.livescreenshotcapture.hotkey.HotkeyAction;
 import balbucio.livescreenshotcapture.hotkey.HotkeyService;
 import balbucio.livescreenshotcapture.model.CaptureRegion;
@@ -56,7 +57,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class Main extends Application {
-    private static final Logger log = LoggerFactory.getLogger(Main.class);
+    private final Logger log = LoggerFactory.getLogger(getClass());
 
     private CaptureService captureService;
     private HotkeyService hotkeyService;
@@ -69,6 +70,7 @@ public class Main extends Application {
     private SettingsService settingsService;
     private Settings settings;
     private TrayManager trayManager;
+    private SingleInstance singleInstance;
     private Stage primaryStage;
     private Profile activeProfile;
     private ExecutorService ioExecutor;
@@ -86,6 +88,19 @@ public class Main extends Application {
 
     @Override
     public void start(Stage stage) throws Exception {
+        java.nio.file.Path configDir = ProfileService.defaultConfigDir();
+        try {
+            singleInstance = SingleInstance.acquire(configDir).orElse(null);
+        } catch (java.io.IOException e) {
+            showFatal("Cannot access config folder:\n" + configDir + "\n" + e.getMessage());
+            return;
+        }
+        if (singleInstance == null) {
+            showFatal("Live Screenshot Capture is already running.\n"
+                    + "Use the tray icon of the running instance.");
+            return;
+        }
+
         AppConfig config = AppConfig.load();
         RegionService regionService = new RegionService();
         profileService = new ProfileService(ProfileService.defaultConfigDir());
@@ -270,6 +285,9 @@ public class Main extends Application {
         });
 
         installTray();
+        runStorageCleanup();
+        burstScheduler.scheduleAtFixedRate(() -> runStorageCleanup(), 1, 1,
+                java.util.concurrent.TimeUnit.HOURS);
         if (settings.startMinimized() && trayManager != null && trayManager.isInstalled()) {
             log.info("Starting minimized to tray");
         } else {
@@ -383,8 +401,20 @@ public class Main extends Application {
         refreshTray();
     }
 
-    private void openCaptures() {
+    private void runStorageCleanup() {
         try {
+            var result = new balbucio.livescreenshotcapture.storage.StorageCleanup()
+                    .enforceQuota(storageService.getBaseDir(), settings.effectiveQuotaBytes());
+            if (result.deletedFiles() > 0) {
+                log.info("Startup/hourly cleanup freed {} MB in {} files",
+                        result.freedBytes() / (1024.0 * 1024.0), result.deletedFiles());
+            }
+        } catch (Exception e) {
+            log.warn("Storage cleanup failed: {}", e.getMessage());
+        }
+    }
+
+    private void openCaptures() {        try {
             java.nio.file.Files.createDirectories(storageService.getBaseDir());
             Desktop.getDesktop().open(storageService.getBaseDir().toFile());
         } catch (Exception e) {
@@ -404,6 +434,7 @@ public class Main extends Application {
                 screenshotService.setKeepOriginal(updated.keepOriginal());
                 burstService.setKeepOriginal(updated.keepOriginal());
                 applyFeedbackSettings();
+                burstScheduler.execute(() -> runStorageCleanup());
             }
 
             @Override
@@ -534,6 +565,17 @@ public class Main extends Application {
 
     private Window window() {
         return profileBox.getScene().getWindow();
+    }
+
+    private void showFatal(String message) {
+        javafx.scene.control.Alert alert =
+                new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.ERROR);
+        alert.setTitle("Live Screenshot Capture");
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+        Platform.exit();
+        System.exit(1);
     }
 
     private void createProfileWizard() {
@@ -769,11 +811,21 @@ public class Main extends Application {
         if (trayManager != null) {
             trayManager.remove();
         }
+        if (singleInstance != null) {
+            singleInstance.close();
+        }
         Platform.exit();
         System.exit(0);
     }
 
     public static void main(String[] args) {
+        java.nio.file.Path logDir = ProfileService.defaultConfigDir().resolve("logs");
+        try {
+            java.nio.file.Files.createDirectories(logDir);
+        } catch (Exception e) {
+            System.err.println("Could not create log dir: " + e.getMessage());
+        }
+        System.setProperty("app.log.dir", logDir.toAbsolutePath().toString());
         launch(args);
     }
 }

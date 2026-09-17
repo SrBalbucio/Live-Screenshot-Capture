@@ -116,7 +116,8 @@ public class SettingsService {
         String outputDir = loaded.outputDir() == null ? defaults.outputDir() : loaded.outputDir();
         return new Settings(outputDir, hotkeys, loaded.trayBalloon(), loaded.sound(),
                 loaded.startMinimized(), loaded.closeToTray(), loaded.launchOnStartup(),
-                loaded.customPresets(), loaded.cameraUpscale(), loaded.keepOriginal());
+                loaded.customPresets(), loaded.cameraUpscale(), loaded.keepOriginal(),
+                loaded.storageQuotaMb());
     }
 
     private boolean isWindows() {
