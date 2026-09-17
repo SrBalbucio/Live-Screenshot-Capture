@@ -31,16 +31,26 @@ public class BurstService {
     private final ScheduledExecutorService scheduler;
     private final List<Long> pastOffsets;
     private final List<Long> futureOffsets;
+    private final ImageUpscaler upscaler;
+    private volatile int cameraUpscale;
 
     public BurstService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor, ScheduledExecutorService scheduler) {
         this(captureService, regionService, storageService, ioExecutor, scheduler,
-                DEFAULT_PAST_OFFSETS, DEFAULT_FUTURE_OFFSETS);
+                DEFAULT_PAST_OFFSETS, DEFAULT_FUTURE_OFFSETS, null, 1);
     }
 
     public BurstService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor, ScheduledExecutorService scheduler,
             List<Long> pastOffsets, List<Long> futureOffsets) {
+        this(captureService, regionService, storageService, ioExecutor, scheduler,
+                pastOffsets, futureOffsets, null, 1);
+    }
+
+    public BurstService(CaptureService captureService, RegionService regionService,
+            StorageService storageService, Executor ioExecutor, ScheduledExecutorService scheduler,
+            List<Long> pastOffsets, List<Long> futureOffsets, ImageUpscaler upscaler,
+            int cameraUpscale) {
         this.captureService = captureService;
         this.regionService = regionService;
         this.storageService = storageService;
@@ -48,6 +58,12 @@ public class BurstService {
         this.scheduler = scheduler;
         this.pastOffsets = List.copyOf(pastOffsets);
         this.futureOffsets = List.copyOf(futureOffsets);
+        this.upscaler = upscaler;
+        this.cameraUpscale = cameraUpscale;
+    }
+
+    public void setCameraUpscale(int cameraUpscale) {
+        this.cameraUpscale = cameraUpscale;
     }
 
     public CompletableFuture<List<Path>> burst(CaptureRegion region) {
@@ -96,10 +112,14 @@ public class BurstService {
         Rectangle cropRect = regionService.toFrameRelative(
                 captureService.getStreamRegion(), region.bounds(), source.getWidth(), source.getHeight());
         BufferedImage cropped = regionService.crop(source, cropRect);
+        int upscale = "stream".equals(region.id()) ? 1 : Math.max(1, cameraUpscale);
+        BufferedImage out = upscale > 1 && upscaler != null
+                ? upscaler.upscale(cropped, upscale)
+                : cropped;
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return Optional.of(new BurstFrame(storageService.saveBurst(cropped, base, offset),
-                        offset));
+                return Optional.of(new BurstFrame(
+                        storageService.saveBurst(out, base, offset, upscale), offset));
             } catch (Exception e) {
                 log.error("Burst: failed to save frame {}", offset, e);
                 return Optional.empty();

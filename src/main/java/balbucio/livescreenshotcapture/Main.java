@@ -17,6 +17,7 @@ import balbucio.livescreenshotcapture.profile.Layout;
 import balbucio.livescreenshotcapture.profile.Profile;
 import balbucio.livescreenshotcapture.profile.ProfileService;
 import balbucio.livescreenshotcapture.region.RegionService;
+import balbucio.livescreenshotcapture.screenshot.BicubicUpscaler;
 import balbucio.livescreenshotcapture.screenshot.BurstFrame;
 import balbucio.livescreenshotcapture.screenshot.BurstSelectionService;
 import balbucio.livescreenshotcapture.screenshot.BurstService;
@@ -104,14 +105,17 @@ public class Main extends Application {
             t.setDaemon(true);
             return t;
         });
-        screenshotService = new ScreenshotService(captureService, regionService, storageService, ioExecutor);
+        screenshotService = new ScreenshotService(captureService, regionService, storageService,
+                ioExecutor, new BicubicUpscaler(), settings.effectiveCameraUpscale());
         burstScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "burst-scheduler");
             t.setDaemon(true);
             return t;
         });
         burstService = new BurstService(captureService, regionService, storageService,
-                ioExecutor, burstScheduler);
+                ioExecutor, burstScheduler, BurstService.DEFAULT_PAST_OFFSETS,
+                BurstService.DEFAULT_FUTURE_OFFSETS, new BicubicUpscaler(),
+                settings.effectiveCameraUpscale());
         notifications = new NotificationService();
         hotkeyService = new HotkeyService();
         hotkeyService.setBindings(settingsService.resolveBindings(settings));
@@ -393,6 +397,9 @@ public class Main extends Application {
             public void onGeneralSaved(Settings updated) {
                 settings = updated;
                 storageService.setBaseDir(settingsService.resolveOutputDir(updated));
+                int upscale = updated.effectiveCameraUpscale();
+                screenshotService.setCameraUpscale(upscale);
+                burstService.setCameraUpscale(upscale);
                 applyFeedbackSettings();
             }
 

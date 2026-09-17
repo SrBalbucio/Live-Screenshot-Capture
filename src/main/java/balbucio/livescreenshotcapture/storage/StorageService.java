@@ -36,11 +36,16 @@ public class StorageService {
     }
 
     public Path save(BufferedImage image, String regionId, long timestampMillis) throws IOException {
+        return save(image, regionId, timestampMillis, 1);
+    }
+
+    public Path save(BufferedImage image, String regionId, long timestampMillis, int upscale)
+            throws IOException {
         LocalDateTime dt = LocalDateTime.now();
         String day = LocalDate.now().format(DAY_FMT);
         String stamp = dt.format(FILE_FMT);
         String ext = format.equals("jpg") ? "jpg" : "png";
-        String fileName = stamp + "_" + regionId + "." + ext;
+        String fileName = stamp + "_" + regionId + upscaleSuffix(upscale) + "." + ext;
         Path dir = baseDir.resolve(profileId).resolve(day).resolve(regionId);
         Files.createDirectories(dir);
         Path file = dir.resolve(fileName);
@@ -51,12 +56,18 @@ public class StorageService {
 
     public Path saveBurst(BufferedImage image, long baseTimestampMillis, long offsetMs)
             throws IOException {
+        return saveBurst(image, baseTimestampMillis, offsetMs, 1);
+    }
+
+    public Path saveBurst(BufferedImage image, long baseTimestampMillis, long offsetMs,
+            int upscale) throws IOException {
         LocalDateTime dt = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(baseTimestampMillis), ZoneId.systemDefault());
         String day = dt.toLocalDate().format(DAY_FMT);
         String stamp = dt.format(FILE_FMT);
         String ext = format.equals("jpg") ? "jpg" : "png";
-        String fileName = stamp + "_burst_" + burstLabel(offsetMs) + "." + ext;
+        String fileName = stamp + "_burst_" + burstLabel(offsetMs) + upscaleSuffix(upscale)
+                + "." + ext;
         Path dir = baseDir.resolve(profileId).resolve(day).resolve("burst");
         Files.createDirectories(dir);
         Path file = dir.resolve(fileName);
@@ -70,6 +81,10 @@ public class StorageService {
             return "000";
         }
         return offsetMs > 0 ? "+" + offsetMs : String.valueOf(offsetMs);
+    }
+
+    static String upscaleSuffix(int upscale) {
+        return upscale > 1 ? "@" + upscale + "x" : "";
     }
 
     private void write(BufferedImage image, Path file) throws IOException {

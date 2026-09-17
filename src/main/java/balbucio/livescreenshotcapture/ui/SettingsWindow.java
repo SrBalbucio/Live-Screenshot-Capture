@@ -102,6 +102,20 @@ public class SettingsWindow {
         sound.setSelected(current.sound());
         CheckBox launchOnStartup = new CheckBox("Launch on Windows startup");
         launchOnStartup.setSelected(current.launchOnStartup());
+        ComboBox<Integer> upscaleBox = new ComboBox<>();
+        upscaleBox.getItems().addAll(1, 2, 3);
+        upscaleBox.setValue(current.effectiveCameraUpscale());
+        upscaleBox.setConverter(new javafx.util.StringConverter<>() {
+            @Override
+            public String toString(Integer v) {
+                return v == null ? "" : v + "x";
+            }
+
+            @Override
+            public Integer fromString(String s) {
+                return 2;
+            }
+        });
         Label startupInfo = new Label();
         String cmd = service.currentLaunchCommand();
         startupInfo.setText(cmd.isEmpty()
@@ -114,7 +128,7 @@ public class SettingsWindow {
             Settings updated = new Settings(outputField.getText().trim(), current.hotkeys(),
                     balloon.isSelected(), sound.isSelected(), startMinimized.isSelected(),
                     closeToTray.isSelected(), launchOnStartup.isSelected(),
-                    current.customPresets());
+                    current.customPresets(), upscaleBox.getValue());
             try {
                 service.save(updated);
                 try {
@@ -134,6 +148,8 @@ public class SettingsWindow {
         VBox root = new VBox(10,
                 new Label("Captures folder:"),
                 new HBox(8, outputField, browse),
+                new HBox(8, new Label("Camera upscale:"), upscaleBox,
+                        new Label("(bicubic + sharpen, files get @Nx suffix)")),
                 startMinimized, closeToTray, balloon, sound, launchOnStartup, startupInfo, save);
         root.setPadding(new Insets(14));
         Tab tab = new Tab("General");
@@ -184,7 +200,8 @@ public class SettingsWindow {
             pending.forEach((a, codes) -> stored.put(a.name(), HotkeyCombo.format(codes)));
             Settings updated = new Settings(current.outputDir(), stored, current.trayBalloon(),
                     current.sound(), current.startMinimized(), current.closeToTray(),
-                    current.launchOnStartup(), current.customPresets());
+                    current.launchOnStartup(), current.customPresets(),
+                    current.cameraUpscale());
             try {
                 service.save(updated);
                 listener.onHotkeysSaved(new EnumMap<>(pending));
@@ -274,7 +291,8 @@ public class SettingsWindow {
                 customs.add(preset);
                 service.save(new Settings(current.outputDir(), current.hotkeys(),
                         current.trayBalloon(), current.sound(), current.startMinimized(),
-                        current.closeToTray(), current.launchOnStartup(), customs));
+                        current.closeToTray(), current.launchOnStartup(), customs,
+                        current.cameraUpscale()));
                 reload.run();
                 listener.onPresetsChanged();
                 notifier.accept("Preset created: " + preset.name());
@@ -294,7 +312,8 @@ public class SettingsWindow {
                 customs.removeIf(p -> p.id().equals(selected.id()));
                 service.save(new Settings(current.outputDir(), current.hotkeys(),
                         current.trayBalloon(), current.sound(), current.startMinimized(),
-                        current.closeToTray(), current.launchOnStartup(), customs));
+                        current.closeToTray(), current.launchOnStartup(), customs,
+                        current.cameraUpscale()));
                 reload.run();
                 listener.onPresetsChanged();
             } catch (Exception ex) {

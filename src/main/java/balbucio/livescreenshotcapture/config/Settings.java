@@ -11,7 +11,7 @@ import java.util.Map;
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record Settings(String outputDir, Map<String, String> hotkeys, boolean trayBalloon,
         boolean sound, boolean startMinimized, boolean closeToTray, boolean launchOnStartup,
-        List<CapturePreset> customPresets) {
+        List<CapturePreset> customPresets, int cameraUpscale) {
     public Settings {
         hotkeys = hotkeys == null ? Map.of() : Map.copyOf(hotkeys);
         customPresets = customPresets == null ? List.of() : List.copyOf(customPresets);
@@ -23,10 +23,15 @@ public record Settings(String outputDir, Map<String, String> hotkeys, boolean tr
                 : HotkeyService.defaultBindings().entrySet()) {
             defaults.put(e.getKey().name(), HotkeyCombo.format(e.getValue()));
         }
-        return new Settings("captures", defaults, true, false, false, true, false, List.of());
+        return new Settings("captures", defaults, true, false, false, true, false, List.of(),
+                2);
     }
 
     public String effectiveOutputDir() {
         return outputDir == null || outputDir.isBlank() ? "captures" : outputDir;
+    }
+
+    public int effectiveCameraUpscale() {
+        return cameraUpscale <= 0 ? 2 : cameraUpscale;
     }
 }

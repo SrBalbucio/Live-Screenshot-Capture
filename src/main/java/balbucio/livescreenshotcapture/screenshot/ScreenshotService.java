@@ -21,13 +21,27 @@ public class ScreenshotService {
     private final RegionService regionService;
     private final StorageService storageService;
     private final Executor ioExecutor;
+    private final ImageUpscaler upscaler;
+    private volatile int cameraUpscale;
 
     public ScreenshotService(CaptureService captureService, RegionService regionService,
             StorageService storageService, Executor ioExecutor) {
+        this(captureService, regionService, storageService, ioExecutor, null, 1);
+    }
+
+    public ScreenshotService(CaptureService captureService, RegionService regionService,
+            StorageService storageService, Executor ioExecutor, ImageUpscaler upscaler,
+            int cameraUpscale) {
         this.captureService = captureService;
         this.regionService = regionService;
         this.storageService = storageService;
         this.ioExecutor = ioExecutor;
+        this.upscaler = upscaler;
+        this.cameraUpscale = cameraUpscale;
+    }
+
+    public void setCameraUpscale(int cameraUpscale) {
+        this.cameraUpscale = cameraUpscale;
     }
 
     public CompletableFuture<Optional<Path>> capture(CaptureRegion region) {
@@ -46,16 +60,27 @@ public class ScreenshotService {
         Rectangle cropRect = regionService.toFrameRelative(
                 captureService.getStreamRegion(), region.bounds(), source.getWidth(), source.getHeight());
         BufferedImage cropped = regionService.crop(source, cropRect);
+        int upscale = upscaleFor(region);
+        BufferedImage out = upscale > 1 && upscaler != null
+                ? upscaler.upscale(cropped, upscale)
+                : cropped;
         long ts = frame.get().timestampMillis();
         return CompletableFuture.supplyAsync(() -> {
             try {
-                Path p = storageService.save(cropped, region.id(), ts);
+                Path p = storageService.save(out, region.id(), ts, upscale);
                 return Optional.of(p);
             } catch (Exception e) {
                 log.error("Failed to save screenshot", e);
                 return Optional.empty();
             }
         }, ioExecutor);
+    }
+
+    private int upscaleFor(CaptureRegion region) {
+        if (cameraUpscale <= 1 || "stream".equals(region.id())) {
+            return 1;
+        }
+        return cameraUpscale;
     }
 
     public CompletableFuture<Optional<Path>> captureStream() {
