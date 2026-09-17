@@ -69,4 +69,22 @@ class ProfileLayoutsTest {
         assertThatThrownBy(() -> service.deleteLayout(base.id(), "default"))
                 .isInstanceOf(IllegalStateException.class);
     }
+
+    @Test
+    void activeLayoutSurvivesJsonRoundTrip(@TempDir Path tmp) throws Exception {
+        ProfileService service = new ProfileService(tmp);
+        Profile base = createBase(service);
+        Profile withTwo = service.addLayout(base.id(), "Gaming", CaptureRegion.CAMERA.bounds());
+        service.save(withTwo.withActiveLayout("gaming"));
+
+        Profile reloaded = service.get(base.id()).orElseThrow();
+        assertThat(reloaded.activeLayoutId()).isEqualTo("gaming");
+        assertThat(reloaded.activeLayout().name()).isEqualTo("Gaming");
+
+        Profile listed = service.list().stream()
+                .filter(p -> p.id().equals(base.id()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(listed.activeLayoutId()).isEqualTo("gaming");
+    }
 }

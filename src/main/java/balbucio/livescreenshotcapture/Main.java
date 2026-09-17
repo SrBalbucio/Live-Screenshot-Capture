@@ -85,6 +85,7 @@ public class Main extends Application {
     private ComboBox<Long> lookbackBox;
     private ComboBox<Layout> layoutBox;
     private List<Layout> layoutOrder = new ArrayList<>();
+    private boolean suppressComboEvents;
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -161,6 +162,9 @@ public class Main extends Application {
         refreshProfiles();
         profileBox.setValue(activeProfile);
         profileBox.setOnAction(e -> {
+            if (suppressComboEvents) {
+                return;
+            }
             Profile selected = profileBox.getValue();
             if (selected != null && !selected.id().equals(activeProfile.id())) {
                 switchProfile(selected);
@@ -186,6 +190,9 @@ public class Main extends Application {
             }
         });
         layoutBox.setOnAction(e -> {
+            if (suppressComboEvents) {
+                return;
+            }
             Layout selected = layoutBox.getValue();
             if (selected != null && !selected.id().equals(activeProfile.activeLayout().id())) {
                 switchLayout(selected.id());
@@ -212,6 +219,9 @@ public class Main extends Application {
         });
         presetBox.setValue(activeProfile.preset());
         presetBox.setOnAction(e -> {
+            if (suppressComboEvents) {
+                return;
+            }
             CapturePreset selected = presetBox.getValue();
             if (selected != null && !selected.id().equals(activeProfile.preset().id())) {
                 applyPreset(selected);
@@ -299,8 +309,13 @@ public class Main extends Application {
         try {
             List<Profile> profiles = profileService.list();
             Platform.runLater(() -> {
-                profileBox.getItems().setAll(profiles);
-                profileBox.setValue(activeProfile);
+                suppressComboEvents = true;
+                try {
+                    profileBox.getItems().setAll(profiles);
+                    profileBox.setValue(activeProfile);
+                } finally {
+                    suppressComboEvents = false;
+                }
             });
         } catch (Exception e) {
             log.warn("Could not list profiles", e);
@@ -311,8 +326,13 @@ public class Main extends Application {
         layoutOrder = new ArrayList<>(activeProfile.layouts().values());
         Layout active = activeProfile.activeLayout();
         Platform.runLater(() -> {
-            layoutBox.getItems().setAll(layoutOrder);
-            layoutBox.setValue(active);
+            suppressComboEvents = true;
+            try {
+                layoutBox.getItems().setAll(layoutOrder);
+                layoutBox.setValue(active);
+            } finally {
+                suppressComboEvents = false;
+            }
         });
     }
 
@@ -446,11 +466,16 @@ public class Main extends Application {
             public void onPresetsChanged() {
                 settings = settingsService.load();
                 CapturePreset keep = activeProfile.preset();
-                presetBox.getItems().setAll(allPresets());
-                presetBox.getItems().stream()
-                        .filter(p -> p.id().equals(keep.id()))
-                        .findFirst()
-                        .ifPresentOrElse(presetBox::setValue, () -> presetBox.setValue(keep));
+                suppressComboEvents = true;
+                try {
+                    presetBox.getItems().setAll(allPresets());
+                    presetBox.getItems().stream()
+                            .filter(p -> p.id().equals(keep.id()))
+                            .findFirst()
+                            .ifPresentOrElse(presetBox::setValue, () -> presetBox.setValue(keep));
+                } finally {
+                    suppressComboEvents = false;
+                }
             }
         }, notifications::notify);
     }
@@ -684,7 +709,12 @@ public class Main extends Application {
             buffer.setRetentionMillis(profile.preset().retentionMillis());
             storageService.setProfileId(profile.id());
             storageService.setFormat(profile.preset().normalizedFormat());
-            presetBox.setValue(profile.preset());
+            suppressComboEvents = true;
+            try {
+                presetBox.setValue(profile.preset());
+            } finally {
+                suppressComboEvents = false;
+            }
             refreshLayouts();
             updateStatus("Switched to " + profile.name());
         } catch (Exception e) {
