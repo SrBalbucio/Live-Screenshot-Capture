@@ -7,6 +7,8 @@ import balbucio.livescreenshotcapture.config.AppConfig;
 import balbucio.livescreenshotcapture.hotkey.HotkeyAction;
 import balbucio.livescreenshotcapture.hotkey.HotkeyService;
 import balbucio.livescreenshotcapture.model.CaptureRegion;
+import balbucio.livescreenshotcapture.model.RelativeRectangle;
+import balbucio.livescreenshotcapture.model.ScreenRegion;
 import balbucio.livescreenshotcapture.notification.NotificationService;
 import balbucio.livescreenshotcapture.preset.CapturePreset;
 import balbucio.livescreenshotcapture.profile.Profile;
@@ -14,6 +16,9 @@ import balbucio.livescreenshotcapture.profile.ProfileService;
 import balbucio.livescreenshotcapture.region.RegionService;
 import balbucio.livescreenshotcapture.screenshot.ScreenshotService;
 import balbucio.livescreenshotcapture.storage.StorageService;
+import balbucio.livescreenshotcapture.ui.PreviewWindow;
+import balbucio.livescreenshotcapture.ui.RegionSelector;
+import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -29,6 +34,7 @@ import javafx.scene.control.TextInputDialog;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +50,7 @@ public class Main extends Application {
     private Profile activeProfile;
     private ExecutorService ioExecutor;
     private FrameBuffer buffer;
+    private RobotCaptureBackend captureBackend;
     private Label statusLabel;
     private Label profileInfoLabel;
     private TextArea logArea;
@@ -57,8 +64,8 @@ public class Main extends Application {
         activeProfile = profileService.getOrCreateDefault(config.streamRegion());
 
         buffer = new FrameBuffer(activeProfile.preset().retentionMillis());
-        RobotCaptureBackend backend = new RobotCaptureBackend();
-        captureService = new CaptureService(backend, buffer,
+        captureBackend = new RobotCaptureBackend();
+        captureService = new CaptureService(captureBackend, buffer,
                 activeProfile.streamRegion(), activeProfile.preset().bufferFps());
         storageService = new StorageService(config.baseDir(), activeProfile.id(),
                 activeProfile.preset().normalizedFormat(), activeProfile.preset().jpegQuality());
@@ -99,8 +106,8 @@ public class Main extends Application {
                 switchProfile(selected);
             }
         });
-        Button newProfileBtn = new Button("New Profile");
-        newProfileBtn.setOnAction(e -> createProfileDialog(config));
+        Button newProfileBtn = new Button("New Profile (select regions)");
+        newProfileBtn.setOnAction(e -> createProfileWizard());
 
         Button cameraBtn = new Button("Capture Camera (Ctrl+Shift+F9)");
         cameraBtn.setOnAction(e -> onHotkey(HotkeyAction.CAPTURE_CAMERA));
@@ -119,13 +126,20 @@ public class Main extends Application {
 
         HBox profileRow = new HBox(8, new Label("Profile:"), profileBox, newProfileBtn);
         HBox buttons = new HBox(8, cameraBtn, streamBtn, pauseBtn);
+        Button repositionBtn = new Button("Reposition Stream");
+        repositionBtn.setOnAction(e -> repositionStream());
+        Button editCameraBtn = new Button("Edit Camera");
+        editCameraBtn.setOnAction(e -> editCamera());
+        Button previewBtn = new Button("Preview");
+        previewBtn.setOnAction(e -> showPreview());
+        HBox regionRow = new HBox(8, repositionBtn, editCameraBtn, previewBtn);
         VBox root = new VBox(10,
-                new Label("Live Screenshot Capture — Fase 2 (Profiles)"),
+                new Label("Live Screenshot Capture — Fase 3 (Region Selection)"),
                 profileRow,
                 profileInfoLabel,
                 statusLabel,
                 new Label("Output: " + config.baseDir().toAbsolutePath()),
-                buttons, logArea);
+                buttons, regionRow, logArea);
         root.setPadding(new Insets(12));
         updateStatus("Capturing");
 
@@ -147,7 +161,11 @@ public class Main extends Application {
         }
     }
 
-    private void createProfileDialog(AppConfig config) {
+    private Window window() {
+        return profileBox.getScene().getWindow();
+    }
+
+    private void createProfileWizard() {
         TextInputDialog dialog = new TextInputDialog("Streamer A");
         dialog.setTitle("New Profile");
         dialog.setHeaderText("Create profile for a streamer");
@@ -156,16 +174,91 @@ public class Main extends Application {
             if (name.isBlank()) {
                 return;
             }
-            try {
-                Profile created = profileService.create(name.trim(), activeProfile.streamRegion(),
-                        CaptureRegion.CAMERA.bounds(), CapturePreset.HIGH_QUALITY);
-                refreshProfiles();
-                switchProfile(created);
-                notifications.notify("Profile created: " + created.name());
-            } catch (Exception ex) {
-                notifications.notify("Failed to create profile: " + ex.getMessage());
-            }
+            notifications.notify("Select the STREAM area on screen…");
+            RegionSelector.selectStream(window()).thenAccept(optStream -> Platform.runLater(() -> {
+                if (optStream.isEmpty()) {
+                    notifications.notify("Profile creation cancelled (no stream selected).");
+                    return;
+                }
+                ScreenRegion stream = optStream.get();
+                notifications.notify("Now select the CAMERA area inside the stream…");
+                RegionSelector.selectCamera(window(), stream).thenAccept(optCam -> Platform.runLater(() -> {
+                    if (optCam.isEmpty()) {
+                        notifications.notify("Profile creation cancelled (no camera selected).");
+                        return;
+                    }
+                    try {
+                        Profile created = profileService.create(name.trim(), stream, optCam.get(),
+                                CapturePreset.HIGH_QUALITY);
+                        refreshProfiles();
+                        switchProfile(created);
+                        notifications.notify("Profile created: " + created.name()
+                                + " stream=" + stream + " camera=" + optCam.get());
+                    } catch (Exception ex) {
+                        notifications.notify("Failed to create profile: " + ex.getMessage());
+                    }
+                }));
+            }));
         });
+    }
+
+    private void repositionStream() {
+        notifications.notify("Select the new STREAM position…");
+        RegionSelector.selectStream(window()).thenAccept(opt -> Platform.runLater(() -> {
+            if (opt.isEmpty()) {
+                notifications.notify("Reposition cancelled.");
+                return;
+            }
+            try {
+                activeProfile = profileService.repositionStream(activeProfile.id(), opt.get());
+                captureService.setStreamRegion(opt.get());
+                refreshProfiles();
+                updateStatus("Stream repositioned");
+                notifications.notify("Stream repositioned to " + opt.get()
+                        + " — camera kept (relative).");
+            } catch (Exception e) {
+                notifications.notify("Failed to reposition: " + e.getMessage());
+            }
+        }));
+    }
+
+    private void editCamera() {
+        notifications.notify("Select the new CAMERA area inside the blue stream bounds…");
+        RegionSelector.selectCamera(window(), activeProfile.streamRegion())
+                .thenAccept(opt -> Platform.runLater(() -> {
+                    if (opt.isEmpty()) {
+                        notifications.notify("Camera edit cancelled.");
+                        return;
+                    }
+                    try {
+                        RelativeRectangle bounds = opt.get();
+                        activeProfile = profileService.updateCameraRegion(
+                                activeProfile.id(), activeProfile.activeLayout().id(), bounds);
+                        refreshProfiles();
+                        updateStatus("Camera updated");
+                        notifications.notify("Camera updated to " + bounds);
+                    } catch (Exception e) {
+                        notifications.notify("Failed to update camera: " + e.getMessage());
+                    }
+                }));
+    }
+
+    private void showPreview() {
+        BufferedImage frame = captureService.latest()
+                .map(f -> f.image())
+                .orElseGet(() -> {
+                    try {
+                        return captureBackend.capture(activeProfile.streamRegion().toAwtRectangle());
+                    } catch (Exception e) {
+                        notifications.notify("Preview failed: " + e.getMessage());
+                        return null;
+                    }
+                });
+        if (frame == null) {
+            notifications.notify("Preview unavailable — no buffered frame yet.");
+            return;
+        }
+        PreviewWindow.show(window(), frame, activeProfile);
     }
 
     private void switchProfile(Profile profile) {
