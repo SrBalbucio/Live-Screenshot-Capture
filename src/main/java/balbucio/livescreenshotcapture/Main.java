@@ -17,15 +17,19 @@ import balbucio.livescreenshotcapture.profile.Layout;
 import balbucio.livescreenshotcapture.profile.Profile;
 import balbucio.livescreenshotcapture.profile.ProfileService;
 import balbucio.livescreenshotcapture.region.RegionService;
+import balbucio.livescreenshotcapture.screenshot.BurstFrame;
+import balbucio.livescreenshotcapture.screenshot.BurstSelectionService;
 import balbucio.livescreenshotcapture.screenshot.BurstService;
 import balbucio.livescreenshotcapture.screenshot.ScreenshotService;
 import balbucio.livescreenshotcapture.storage.StorageService;
+import balbucio.livescreenshotcapture.ui.BurstGalleryWindow;
 import balbucio.livescreenshotcapture.ui.PreviewWindow;
 import balbucio.livescreenshotcapture.ui.RegionSelector;
 import balbucio.livescreenshotcapture.ui.SettingsWindow;
 import balbucio.livescreenshotcapture.ui.TrayManager;
 import java.awt.Desktop;
 import java.awt.image.BufferedImage;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -236,7 +240,7 @@ public class Main extends Application {
         previewBtn.setOnAction(e -> showPreview());
         HBox regionRow = new HBox(8, repositionBtn, editCameraBtn, previewBtn);
         VBox root = new VBox(10,
-                new Label("Live Screenshot Capture — Fase 6 (Desktop UX)"),
+                new Label("Live Screenshot Capture"),
                 profileRow,
                 layoutRow,
                 presetRow,
@@ -688,12 +692,21 @@ public class Main extends Application {
     }
 
     private void doBurst() {
-        burstService.burst(activeProfile.cameraRegion()).thenAccept(paths -> {
-            if (paths.isEmpty()) {
+        burstService.burstDetailed(activeProfile.cameraRegion()).thenAccept(frames -> {
+            if (frames.isEmpty()) {
                 notifications.notify("Burst failed — no buffered frames.");
-            } else {
-                notifications.notify("\uD83D\uDCF8 " + paths.size() + " burst frames captured");
+                return;
             }
+            List<Path> all = frames.stream().map(BurstFrame::path).toList();
+            Platform.runLater(() -> BurstGalleryWindow.show(window(), frames, keep -> {
+                try {
+                    List<Path> kept = new BurstSelectionService().keepOnly(all, keep);
+                    notifications.notify("\uD83D\uDCF8 Burst: kept " + kept.size() + " of "
+                            + all.size() + " frames");
+                } catch (Exception e) {
+                    notifications.notify("Burst cleanup failed: " + e.getMessage());
+                }
+            }));
         });
     }
 

@@ -51,13 +51,18 @@ public class BurstService {
     }
 
     public CompletableFuture<List<Path>> burst(CaptureRegion region) {
+        return burstDetailed(region).thenApply(
+                frames -> frames.stream().map(BurstFrame::path).toList());
+    }
+
+    public CompletableFuture<List<BurstFrame>> burstDetailed(CaptureRegion region) {
         long base = System.currentTimeMillis();
-        List<CompletableFuture<Optional<Path>>> all = new ArrayList<>();
+        List<CompletableFuture<Optional<BurstFrame>>> all = new ArrayList<>();
         for (long offset : pastOffsets) {
             all.add(saveFrame(region, captureService.getBuffer().atOffset(base + offset), base, offset));
         }
         for (long offset : futureOffsets) {
-            CompletableFuture<Optional<Path>> slot = new CompletableFuture<>();
+            CompletableFuture<Optional<BurstFrame>> slot = new CompletableFuture<>();
             scheduler.schedule(() -> {
                 try {
                     saveFrame(region, captureService.latest(), base, offset)
@@ -81,7 +86,7 @@ public class BurstService {
                         .toList());
     }
 
-    private CompletableFuture<Optional<Path>> saveFrame(CaptureRegion region,
+    private CompletableFuture<Optional<BurstFrame>> saveFrame(CaptureRegion region,
             Optional<CapturedFrame> frame, long base, long offset) {
         if (frame.isEmpty()) {
             log.warn("Burst: no buffered frame for offset {}", offset);
@@ -93,7 +98,8 @@ public class BurstService {
         BufferedImage cropped = regionService.crop(source, cropRect);
         return CompletableFuture.supplyAsync(() -> {
             try {
-                return Optional.of(storageService.saveBurst(cropped, base, offset));
+                return Optional.of(new BurstFrame(storageService.saveBurst(cropped, base, offset),
+                        offset));
             } catch (Exception e) {
                 log.error("Burst: failed to save frame {}", offset, e);
                 return Optional.empty();
