@@ -40,13 +40,14 @@ public class PreviewWindow {
 
         StackPane stack = new StackPane(view, overlay);
 
-        CaptureRegion cam = profile.cameraRegion();
         Label title = new Label("Preview — " + profile.name() + " / layout " + profile.activeLayout().name());
         title.setStyle("-fx-font-weight: bold; -fx-font-size: 14;");
         Label streamLabel = new Label("Stream: " + profile.streamRegion().width() + "x"
                 + profile.streamRegion().height() + " @ (" + profile.streamRegion().x() + ","
                 + profile.streamRegion().y() + ") — green = full stream");
-        Label camLabel = new Label("Camera (relative): " + cam.bounds() + " — yellow box");
+        Label camLabel = new Label("Regions in layout '" + profile.activeLayout().name() + "': "
+                + String.join(", ", profile.activeLayout().regions().keySet())
+                + " — yellow = camera, cyan = others");
         Label presetLabel = new Label("Preset: " + profile.preset().name() + " | output: " + profile.id());
 
         VBox root = new VBox(8, title, streamLabel, camLabel, presetLabel, new ScrollPane(stack));
@@ -66,15 +67,22 @@ public class PreviewWindow {
         gc.setStroke(Color.LIME);
         gc.setLineWidth(2);
         gc.strokeRect(1, 1, dispW - 2, dispH - 2);
-        CaptureRegion cam = profile.cameraRegion();
-        double x = cam.bounds().x() * dispW;
-        double y = cam.bounds().y() * dispH;
-        double w = cam.bounds().width() * dispW;
-        double h = cam.bounds().height() * dispH;
-        gc.setStroke(Color.YELLOW);
+        for (CaptureRegion region : profile.activeLayout().regions().values()) {
+            boolean isCamera = region.id().equals("camera");
+            drawRegion(gc, region, dispW, dispH, isCamera ? Color.YELLOW : Color.CYAN);
+        }
+    }
+
+    private static void drawRegion(GraphicsContext gc, CaptureRegion region,
+            double dispW, double dispH, Color color) {
+        double x = region.bounds().x() * dispW;
+        double y = region.bounds().y() * dispH;
+        double w = region.bounds().width() * dispW;
+        double h = region.bounds().height() * dispH;
+        gc.setStroke(color);
         gc.setLineWidth(2.5);
         gc.strokeRect(x, y, w, h);
-        gc.setFill(Color.YELLOW);
-        gc.fillText("CAM", x + 4, y + 14);
+        gc.setFill(color);
+        gc.fillText(region.name().toUpperCase(), x + 4, y + 14);
     }
 }

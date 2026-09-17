@@ -17,10 +17,15 @@ public class HotkeyService implements NativeKeyListener {
 
     private final Set<Integer> pressed = ConcurrentHashMap.newKeySet();
     private final CopyOnWriteArrayList<Consumer<HotkeyAction>> listeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Consumer<Integer>> layoutListeners = new CopyOnWriteArrayList<>();
     private volatile boolean running;
 
     public void addListener(Consumer<HotkeyAction> listener) {
         listeners.add(listener);
+    }
+
+    public void addLayoutListener(Consumer<Integer> listener) {
+        layoutListeners.add(listener);
     }
 
     public synchronized void start() throws NativeHookException {
@@ -33,7 +38,8 @@ public class HotkeyService implements NativeKeyListener {
         GlobalScreen.registerNativeHook();
         GlobalScreen.addNativeKeyListener(this);
         running = true;
-        log.info("Global hotkeys active: Ctrl+Shift+F9=camera, Ctrl+Shift+F10=stream, Ctrl+Shift+F11=burst");
+        log.info("Global hotkeys active: Ctrl+Shift+F9=camera, Ctrl+Shift+F10=stream,"
+                + " Ctrl+Shift+F11=burst, Ctrl+1..9=layout");
     }
 
     public synchronized void stop() {
@@ -66,6 +72,11 @@ public class HotkeyService implements NativeKeyListener {
             } else if (e.getKeyCode() == NativeKeyEvent.VC_F11) {
                 fire(HotkeyAction.CAPTURE_BURST);
             }
+        } else if (ctrl && !shift) {
+            int layoutIndex = digitToLayoutIndex(e.getKeyCode());
+            if (layoutIndex > 0) {
+                fireLayout(layoutIndex);
+            }
         }
     }
 
@@ -76,6 +87,40 @@ public class HotkeyService implements NativeKeyListener {
 
     @Override
     public void nativeKeyTyped(NativeKeyEvent e) {
+    }
+
+    private void fireLayout(int index) {
+        log.info("Layout hotkey fired: {}", index);
+        for (Consumer<Integer> l : layoutListeners) {
+            try {
+                l.accept(index);
+            } catch (Exception ex) {
+                log.warn("Layout hotkey listener failed", ex);
+            }
+        }
+    }
+
+    static int digitToLayoutIndex(int keyCode) {
+        if (keyCode == NativeKeyEvent.VC_1) {
+            return 1;
+        } else if (keyCode == NativeKeyEvent.VC_2) {
+            return 2;
+        } else if (keyCode == NativeKeyEvent.VC_3) {
+            return 3;
+        } else if (keyCode == NativeKeyEvent.VC_4) {
+            return 4;
+        } else if (keyCode == NativeKeyEvent.VC_5) {
+            return 5;
+        } else if (keyCode == NativeKeyEvent.VC_6) {
+            return 6;
+        } else if (keyCode == NativeKeyEvent.VC_7) {
+            return 7;
+        } else if (keyCode == NativeKeyEvent.VC_8) {
+            return 8;
+        } else if (keyCode == NativeKeyEvent.VC_9) {
+            return 9;
+        }
+        return -1;
     }
 
     private void fire(HotkeyAction action) {

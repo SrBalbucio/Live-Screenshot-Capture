@@ -11,6 +11,7 @@ import balbucio.livescreenshotcapture.model.RelativeRectangle;
 import balbucio.livescreenshotcapture.model.ScreenRegion;
 import balbucio.livescreenshotcapture.notification.NotificationService;
 import balbucio.livescreenshotcapture.preset.CapturePreset;
+import balbucio.livescreenshotcapture.profile.Layout;
 import balbucio.livescreenshotcapture.profile.Profile;
 import balbucio.livescreenshotcapture.profile.ProfileService;
 import balbucio.livescreenshotcapture.region.RegionService;
@@ -20,6 +21,7 @@ import balbucio.livescreenshotcapture.storage.StorageService;
 import balbucio.livescreenshotcapture.ui.PreviewWindow;
 import balbucio.livescreenshotcapture.ui.RegionSelector;
 import java.awt.image.BufferedImage;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -63,6 +65,8 @@ public class Main extends Application {
     private ComboBox<Profile> profileBox;
     private ComboBox<CapturePreset> presetBox;
     private ComboBox<Long> lookbackBox;
+    private ComboBox<Layout> layoutBox;
+    private List<Layout> layoutOrder = new ArrayList<>();
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -106,6 +110,7 @@ public class Main extends Application {
         }));
 
         hotkeyService.addListener(this::onHotkey);
+        hotkeyService.addLayoutListener(i -> Platform.runLater(() -> switchToLayoutIndex(i)));
         try {
             hotkeyService.start();
         } catch (Exception e) {
@@ -124,6 +129,33 @@ public class Main extends Application {
         });
         Button newProfileBtn = new Button("New Profile (select regions)");
         newProfileBtn.setOnAction(e -> createProfileWizard());
+
+        layoutBox = new ComboBox<>();
+        layoutBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(Layout l) {
+                if (l == null) {
+                    return "";
+                }
+                int idx = layoutOrder.indexOf(l);
+                return (idx >= 0 ? (idx + 1) + ". " : "") + l.name();
+            }
+
+            @Override
+            public Layout fromString(String s) {
+                return null;
+            }
+        });
+        layoutBox.setOnAction(e -> {
+            Layout selected = layoutBox.getValue();
+            if (selected != null && !selected.id().equals(activeProfile.activeLayout().id())) {
+                switchLayout(selected.id());
+            }
+        });
+        Button newLayoutBtn = new Button("New Layout");
+        newLayoutBtn.setOnAction(e -> createLayoutWizard());
+        Button deleteLayoutBtn = new Button("Delete Layout");
+        deleteLayoutBtn.setOnAction(e -> deleteActiveLayout());
 
         presetBox = new ComboBox<>();
         presetBox.getItems().addAll(CapturePreset.HIGH_QUALITY, CapturePreset.LOW_MEMORY,
@@ -181,6 +213,8 @@ public class Main extends Application {
         });
 
         HBox profileRow = new HBox(8, new Label("Profile:"), profileBox, newProfileBtn);
+        HBox layoutRow = new HBox(8, new Label("Layout:"), layoutBox, newLayoutBtn,
+                deleteLayoutBtn, new Label("(Ctrl+1..9)"));
         HBox presetRow = new HBox(8, new Label("Preset:"), presetBox,
                 new Label("Lookback:"), lookbackBox, memLabel);
         HBox buttons = new HBox(8, cameraBtn, streamBtn, burstBtn, pauseBtn);
@@ -192,14 +226,16 @@ public class Main extends Application {
         previewBtn.setOnAction(e -> showPreview());
         HBox regionRow = new HBox(8, repositionBtn, editCameraBtn, previewBtn);
         VBox root = new VBox(10,
-                new Label("Live Screenshot Capture — Fase 4 (Buffer + Burst)"),
+                new Label("Live Screenshot Capture — Fase 5 (Layouts)"),
                 profileRow,
+                layoutRow,
                 presetRow,
                 profileInfoLabel,
                 statusLabel,
                 new Label("Output: " + config.baseDir().toAbsolutePath()),
                 buttons, regionRow, logArea);
         root.setPadding(new Insets(12));
+        refreshLayouts();
         updateStatus("Capturing");
 
         stage.setTitle("Live Screenshot Capture");
@@ -217,6 +253,80 @@ public class Main extends Application {
             });
         } catch (Exception e) {
             log.warn("Could not list profiles", e);
+        }
+    }
+
+    private void refreshLayouts() {
+        layoutOrder = new ArrayList<>(activeProfile.layouts().values());
+        Layout active = activeProfile.activeLayout();
+        Platform.runLater(() -> {
+            layoutBox.getItems().setAll(layoutOrder);
+            layoutBox.setValue(active);
+        });
+    }
+
+    private void switchLayout(String layoutId) {
+        try {
+            activeProfile = profileService.save(activeProfile.withActiveLayout(layoutId));
+            refreshLayouts();
+            updateStatus("Layout switched");
+            notifications.notify("Layout: " + activeProfile.activeLayout().name());
+        } catch (Exception e) {
+            notifications.notify("Failed to switch layout: " + e.getMessage());
+        }
+    }
+
+    private void switchToLayoutIndex(int index) {
+        List<Layout> order = new ArrayList<>(activeProfile.layouts().values());
+        if (index < 1 || index > order.size()) {
+            return;
+        }
+        Layout target = order.get(index - 1);
+        if (!target.id().equals(activeProfile.activeLayout().id())) {
+            switchLayout(target.id());
+        }
+    }
+
+    private void createLayoutWizard() {
+        TextInputDialog dialog = new TextInputDialog("Just Chatting");
+        dialog.setTitle("New Layout");
+        dialog.setHeaderText("Create layout for " + activeProfile.name());
+        dialog.setContentText("Name:");
+        dialog.showAndWait().ifPresent(name -> {
+            if (name.isBlank()) {
+                return;
+            }
+            notifications.notify("Select the CAMERA area for layout '" + name.trim() + "'…");
+            RegionSelector.selectCamera(window(), activeProfile.streamRegion())
+                    .thenAccept(opt -> Platform.runLater(() -> {
+                        if (opt.isEmpty()) {
+                            notifications.notify("Layout creation cancelled.");
+                            return;
+                        }
+                        try {
+                            activeProfile = profileService.addLayout(
+                                    activeProfile.id(), name.trim(), opt.get());
+                            refreshProfiles();
+                            refreshLayouts();
+                            updateStatus("Layout created");
+                            notifications.notify("Layout created: " + name.trim());
+                        } catch (Exception e) {
+                            notifications.notify("Failed to create layout: " + e.getMessage());
+                        }
+                    }));
+        });
+    }
+
+    private void deleteActiveLayout() {
+        Layout active = activeProfile.activeLayout();
+        try {
+            activeProfile = profileService.deleteLayout(activeProfile.id(), active.id());
+            refreshProfiles();
+            refreshLayouts();
+            updateStatus("Layout deleted");
+            notifications.notify("Layout deleted: " + active.name());
+        } catch (Exception e) {
+            notifications.notify("Cannot delete layout: " + e.getMessage());
         }
     }
 
@@ -331,6 +441,7 @@ public class Main extends Application {
             storageService.setProfileId(profile.id());
             storageService.setFormat(profile.preset().normalizedFormat());
             presetBox.setValue(profile.preset());
+            refreshLayouts();
             updateStatus("Switched to " + profile.name());
         } catch (Exception e) {
             notifications.notify("Failed to switch profile: " + e.getMessage());

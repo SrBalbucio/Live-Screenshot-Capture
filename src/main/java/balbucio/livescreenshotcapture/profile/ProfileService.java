@@ -160,6 +160,42 @@ public class ProfileService {
         return save(updated);
     }
 
+    public Profile addLayout(String profileId, String layoutName, RelativeRectangle cameraBounds)
+            throws IOException {
+        Profile current = get(profileId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown profile: " + profileId));
+        String baseId = slugify(layoutName);
+        String layoutId = baseId;
+        int suffix = 2;
+        while (current.layouts().containsKey(layoutId)) {
+            layoutId = baseId + "-" + suffix++;
+        }
+        Map<String, Layout> layouts = new java.util.LinkedHashMap<>(current.layouts());
+        layouts.put(layoutId, Layout.withCamera(layoutId, layoutName, cameraBounds));
+        Profile updated = new Profile(current.id(), current.name(), current.streamRegion(),
+                layouts, layoutId, current.preset());
+        return save(updated);
+    }
+
+    public Profile deleteLayout(String profileId, String layoutId) throws IOException {
+        Profile current = get(profileId)
+                .orElseThrow(() -> new IllegalArgumentException("unknown profile: " + profileId));
+        if (!current.layouts().containsKey(layoutId)) {
+            throw new IllegalArgumentException("unknown layout: " + layoutId);
+        }
+        if (current.layouts().size() <= 1) {
+            throw new IllegalStateException("cannot delete the last layout of a profile");
+        }
+        Map<String, Layout> layouts = new java.util.LinkedHashMap<>(current.layouts());
+        layouts.remove(layoutId);
+        String active = current.activeLayoutId().equals(layoutId)
+                ? layouts.keySet().iterator().next()
+                : current.activeLayoutId();
+        Profile updated = new Profile(current.id(), current.name(), current.streamRegion(),
+                layouts, active, current.preset());
+        return save(updated);
+    }
+
     private void ensureDirs() throws IOException {
         Files.createDirectories(profilesDir);
     }
