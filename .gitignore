@@ -40,3 +40,9 @@ build/
 .DS_Store
 
 project.md
+
+.env
+
+# Evita que jars copiados por engano na raiz sujem o repo (build usa target/ e dist/).
+/*.jar
+logs
