@@ -14,6 +14,7 @@ import balbucio.livescreenshotcapture.preset.CapturePreset;
 import balbucio.livescreenshotcapture.profile.Profile;
 import balbucio.livescreenshotcapture.profile.ProfileService;
 import balbucio.livescreenshotcapture.region.RegionService;
+import balbucio.livescreenshotcapture.screenshot.BurstService;
 import balbucio.livescreenshotcapture.screenshot.ScreenshotService;
 import balbucio.livescreenshotcapture.storage.StorageService;
 import balbucio.livescreenshotcapture.ui.PreviewWindow;
@@ -22,6 +23,7 @@ import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -35,6 +37,7 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 import javafx.stage.Window;
+import javafx.util.StringConverter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -44,6 +47,8 @@ public class Main extends Application {
     private CaptureService captureService;
     private HotkeyService hotkeyService;
     private ScreenshotService screenshotService;
+    private BurstService burstService;
+    private ScheduledExecutorService burstScheduler;
     private StorageService storageService;
     private NotificationService notifications;
     private ProfileService profileService;
@@ -53,8 +58,11 @@ public class Main extends Application {
     private RobotCaptureBackend captureBackend;
     private Label statusLabel;
     private Label profileInfoLabel;
+    private Label memLabel;
     private TextArea logArea;
     private ComboBox<Profile> profileBox;
+    private ComboBox<CapturePreset> presetBox;
+    private ComboBox<Long> lookbackBox;
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -75,11 +83,19 @@ public class Main extends Application {
             return t;
         });
         screenshotService = new ScreenshotService(captureService, regionService, storageService, ioExecutor);
+        burstScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+            Thread t = new Thread(r, "burst-scheduler");
+            t.setDaemon(true);
+            return t;
+        });
+        burstService = new BurstService(captureService, regionService, storageService,
+                ioExecutor, burstScheduler);
         notifications = new NotificationService();
         hotkeyService = new HotkeyService();
 
         statusLabel = new Label();
         profileInfoLabel = new Label();
+        memLabel = new Label();
         logArea = new TextArea();
         logArea.setEditable(false);
         logArea.setPrefRowCount(10);
@@ -109,10 +125,50 @@ public class Main extends Application {
         Button newProfileBtn = new Button("New Profile (select regions)");
         newProfileBtn.setOnAction(e -> createProfileWizard());
 
+        presetBox = new ComboBox<>();
+        presetBox.getItems().addAll(CapturePreset.HIGH_QUALITY, CapturePreset.LOW_MEMORY,
+                CapturePreset.REACTION);
+        presetBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(CapturePreset p) {
+                return p == null ? "" : p.name() + " (" + p.format() + "/" + p.bufferFps()
+                        + "fps/" + p.bufferSeconds() + "s)";
+            }
+
+            @Override
+            public CapturePreset fromString(String s) {
+                return null;
+            }
+        });
+        presetBox.setValue(activeProfile.preset());
+        presetBox.setOnAction(e -> {
+            CapturePreset selected = presetBox.getValue();
+            if (selected != null && !selected.id().equals(activeProfile.preset().id())) {
+                applyPreset(selected);
+            }
+        });
+
+        lookbackBox = new ComboBox<>();
+        lookbackBox.getItems().addAll(0L, -500L, -1000L);
+        lookbackBox.setValue(0L);
+        lookbackBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(Long v) {
+                return v == null || v == 0 ? "Immediate" : v + "ms";
+            }
+
+            @Override
+            public Long fromString(String s) {
+                return 0L;
+            }
+        });
+
         Button cameraBtn = new Button("Capture Camera (Ctrl+Shift+F9)");
-        cameraBtn.setOnAction(e -> onHotkey(HotkeyAction.CAPTURE_CAMERA));
+        cameraBtn.setOnAction(e -> captureCameraWithLookback());
         Button streamBtn = new Button("Capture Stream (Ctrl+Shift+F10)");
-        streamBtn.setOnAction(e -> onHotkey(HotkeyAction.CAPTURE_STREAM));
+        streamBtn.setOnAction(e -> captureStreamWithLookback());
+        Button burstBtn = new Button("Camera Burst (Ctrl+Shift+F11)");
+        burstBtn.setOnAction(e -> doBurst());
         Button pauseBtn = new Button("Pause / Resume");
         pauseBtn.setOnAction(e -> {
             if (captureService.isRunning()) {
@@ -125,7 +181,9 @@ public class Main extends Application {
         });
 
         HBox profileRow = new HBox(8, new Label("Profile:"), profileBox, newProfileBtn);
-        HBox buttons = new HBox(8, cameraBtn, streamBtn, pauseBtn);
+        HBox presetRow = new HBox(8, new Label("Preset:"), presetBox,
+                new Label("Lookback:"), lookbackBox, memLabel);
+        HBox buttons = new HBox(8, cameraBtn, streamBtn, burstBtn, pauseBtn);
         Button repositionBtn = new Button("Reposition Stream");
         repositionBtn.setOnAction(e -> repositionStream());
         Button editCameraBtn = new Button("Edit Camera");
@@ -134,8 +192,9 @@ public class Main extends Application {
         previewBtn.setOnAction(e -> showPreview());
         HBox regionRow = new HBox(8, repositionBtn, editCameraBtn, previewBtn);
         VBox root = new VBox(10,
-                new Label("Live Screenshot Capture — Fase 3 (Region Selection)"),
+                new Label("Live Screenshot Capture — Fase 4 (Buffer + Burst)"),
                 profileRow,
+                presetRow,
                 profileInfoLabel,
                 statusLabel,
                 new Label("Output: " + config.baseDir().toAbsolutePath()),
@@ -144,7 +203,7 @@ public class Main extends Application {
         updateStatus("Capturing");
 
         stage.setTitle("Live Screenshot Capture");
-        stage.setScene(new Scene(root, 680, 460));
+        stage.setScene(new Scene(root, 720, 520));
         stage.setOnCloseRequest(e -> shutdown());
         stage.show();
     }
@@ -271,9 +330,23 @@ public class Main extends Application {
             buffer.setRetentionMillis(profile.preset().retentionMillis());
             storageService.setProfileId(profile.id());
             storageService.setFormat(profile.preset().normalizedFormat());
+            presetBox.setValue(profile.preset());
             updateStatus("Switched to " + profile.name());
         } catch (Exception e) {
             notifications.notify("Failed to switch profile: " + e.getMessage());
+        }
+    }
+
+    private void applyPreset(CapturePreset preset) {
+        try {
+            activeProfile = profileService.save(activeProfile.withPreset(preset));
+            captureService.setBufferFps(preset.bufferFps());
+            buffer.setRetentionMillis(preset.retentionMillis());
+            storageService.setFormat(preset.normalizedFormat());
+            updateStatus("Preset applied");
+            notifications.notify("Preset applied: " + preset.name());
+        } catch (Exception e) {
+            notifications.notify("Failed to apply preset: " + e.getMessage());
         }
     }
 
@@ -285,6 +358,43 @@ public class Main extends Application {
                 + " @" + activeProfile.preset().bufferFps() + "fps";
         statusLabel.setText(info);
         profileInfoLabel.setText("Camera region (relative): " + activeProfile.cameraRegion().bounds());
+        updateMemEstimate();
+    }
+
+    private void updateMemEstimate() {
+        ScreenRegion s = activeProfile.streamRegion();
+        CapturePreset p = activeProfile.preset();
+        long frames = (long) p.bufferFps() * p.bufferSeconds();
+        long bytes = (long) s.width() * s.height() * 4 * frames;
+        double mb = bytes / (1024.0 * 1024.0);
+        memLabel.setText(String.format("Buffer ~%.0f MB (%d frames)", mb, frames));
+        if (mb > 300) {
+            log.warn("Buffer estimate high: {} MB — consider Low Memory preset", (int) mb);
+        }
+    }
+
+    private void captureCameraWithLookback() {
+        long lookback = lookbackBox.getValue();
+        screenshotService.captureDelayed(activeProfile.cameraRegion(), lookback)
+                .thenAccept(p -> p.ifPresent(path ->
+                        notifications.notifySaved("Camera [" + activeProfile.name() + "]", path.toString())));
+    }
+
+    private void captureStreamWithLookback() {
+        long lookback = lookbackBox.getValue();
+        screenshotService.captureDelayed(CaptureRegion.FULL_STREAM, lookback)
+                .thenAccept(p -> p.ifPresent(path ->
+                        notifications.notifySaved("Stream [" + activeProfile.name() + "]", path.toString())));
+    }
+
+    private void doBurst() {
+        burstService.burst(activeProfile.cameraRegion()).thenAccept(paths -> {
+            if (paths.isEmpty()) {
+                notifications.notify("Burst failed — no buffered frames.");
+            } else {
+                notifications.notify("\uD83D\uDCF8 " + paths.size() + " burst frames captured");
+            }
+        });
     }
 
     private void onHotkey(HotkeyAction action) {
@@ -295,6 +405,7 @@ public class Main extends Application {
             case CAPTURE_STREAM -> screenshotService.captureStream()
                     .thenAccept(p -> p.ifPresent(path ->
                             notifications.notifySaved("Stream [" + activeProfile.name() + "]", path.toString())));
+            case CAPTURE_BURST -> doBurst();
         }
     }
 
@@ -313,6 +424,9 @@ public class Main extends Application {
         }
         if (ioExecutor != null) {
             ioExecutor.shutdownNow();
+        }
+        if (burstScheduler != null) {
+            burstScheduler.shutdownNow();
         }
         Platform.exit();
     }

@@ -31,9 +31,15 @@ public class ScreenshotService {
     }
 
     public CompletableFuture<Optional<Path>> capture(CaptureRegion region) {
-        Optional<CapturedFrame> frame = captureService.latest();
+        return captureDelayed(region, 0);
+    }
+
+    public CompletableFuture<Optional<Path>> captureDelayed(CaptureRegion region, long offsetFromNowMillis) {
+        Optional<CapturedFrame> frame = offsetFromNowMillis == 0
+                ? captureService.latest()
+                : captureService.atOffsetMillis(offsetFromNowMillis);
         if (frame.isEmpty()) {
-            log.warn("No buffered frame available");
+            log.warn("No buffered frame available for offset {}", offsetFromNowMillis);
             return CompletableFuture.completedFuture(Optional.empty());
         }
         BufferedImage source = frame.get().image();

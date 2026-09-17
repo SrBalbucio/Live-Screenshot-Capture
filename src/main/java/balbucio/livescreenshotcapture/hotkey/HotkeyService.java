@@ -33,7 +33,7 @@ public class HotkeyService implements NativeKeyListener {
         GlobalScreen.registerNativeHook();
         GlobalScreen.addNativeKeyListener(this);
         running = true;
-        log.info("Global hotkeys active: Ctrl+Shift+F9=camera, Ctrl+Shift+F10=stream");
+        log.info("Global hotkeys active: Ctrl+Shift+F9=camera, Ctrl+Shift+F10=stream, Ctrl+Shift+F11=burst");
     }
 
     public synchronized void stop() {
@@ -63,6 +63,8 @@ public class HotkeyService implements NativeKeyListener {
                 fire(HotkeyAction.CAPTURE_CAMERA);
             } else if (e.getKeyCode() == NativeKeyEvent.VC_F10) {
                 fire(HotkeyAction.CAPTURE_STREAM);
+            } else if (e.getKeyCode() == NativeKeyEvent.VC_F11) {
+                fire(HotkeyAction.CAPTURE_BURST);
             }
         }
     }

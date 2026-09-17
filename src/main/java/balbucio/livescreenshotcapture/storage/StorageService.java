@@ -4,8 +4,10 @@ import java.awt.image.BufferedImage;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import javax.imageio.IIOImage;
 import javax.imageio.ImageIO;
@@ -45,6 +47,29 @@ public class StorageService {
         write(image, file);
         log.info("Saved screenshot: {}", file);
         return file;
+    }
+
+    public Path saveBurst(BufferedImage image, long baseTimestampMillis, long offsetMs)
+            throws IOException {
+        LocalDateTime dt = LocalDateTime.ofInstant(
+                Instant.ofEpochMilli(baseTimestampMillis), ZoneId.systemDefault());
+        String day = dt.toLocalDate().format(DAY_FMT);
+        String stamp = dt.format(FILE_FMT);
+        String ext = format.equals("jpg") ? "jpg" : "png";
+        String fileName = stamp + "_burst_" + burstLabel(offsetMs) + "." + ext;
+        Path dir = baseDir.resolve(profileId).resolve(day).resolve("burst");
+        Files.createDirectories(dir);
+        Path file = dir.resolve(fileName);
+        write(image, file);
+        log.info("Saved burst frame: {}", file);
+        return file;
+    }
+
+    public static String burstLabel(long offsetMs) {
+        if (offsetMs == 0) {
+            return "000";
+        }
+        return offsetMs > 0 ? "+" + offsetMs : String.valueOf(offsetMs);
     }
 
     private void write(BufferedImage image, Path file) throws IOException {
