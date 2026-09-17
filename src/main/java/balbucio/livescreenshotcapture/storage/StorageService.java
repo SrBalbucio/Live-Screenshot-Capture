@@ -23,7 +23,7 @@ public class StorageService {
     private static final DateTimeFormatter FILE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss-SSS");
     private static final DateTimeFormatter DAY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
-    private final Path baseDir;
+    private volatile Path baseDir;
     private volatile String profileId;
     private volatile String format;
     private volatile float jpegQuality;
@@ -92,6 +92,14 @@ public class StorageService {
         } finally {
             writer.dispose();
         }
+    }
+
+    public Path getBaseDir() {
+        return baseDir;
+    }
+
+    public void setBaseDir(Path baseDir) {
+        this.baseDir = baseDir;
     }
 
     public String getProfileId() {

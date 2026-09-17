@@ -4,6 +4,8 @@ import balbucio.livescreenshotcapture.buffer.FrameBuffer;
 import balbucio.livescreenshotcapture.capture.CaptureService;
 import balbucio.livescreenshotcapture.capture.RobotCaptureBackend;
 import balbucio.livescreenshotcapture.config.AppConfig;
+import balbucio.livescreenshotcapture.config.Settings;
+import balbucio.livescreenshotcapture.config.SettingsService;
 import balbucio.livescreenshotcapture.hotkey.HotkeyAction;
 import balbucio.livescreenshotcapture.hotkey.HotkeyService;
 import balbucio.livescreenshotcapture.model.CaptureRegion;
@@ -20,9 +22,14 @@ import balbucio.livescreenshotcapture.screenshot.ScreenshotService;
 import balbucio.livescreenshotcapture.storage.StorageService;
 import balbucio.livescreenshotcapture.ui.PreviewWindow;
 import balbucio.livescreenshotcapture.ui.RegionSelector;
+import balbucio.livescreenshotcapture.ui.SettingsWindow;
+import balbucio.livescreenshotcapture.ui.TrayManager;
+import java.awt.Desktop;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -54,6 +61,10 @@ public class Main extends Application {
     private StorageService storageService;
     private NotificationService notifications;
     private ProfileService profileService;
+    private SettingsService settingsService;
+    private Settings settings;
+    private TrayManager trayManager;
+    private Stage primaryStage;
     private Profile activeProfile;
     private ExecutorService ioExecutor;
     private FrameBuffer buffer;
@@ -73,13 +84,16 @@ public class Main extends Application {
         AppConfig config = AppConfig.load();
         RegionService regionService = new RegionService();
         profileService = new ProfileService(ProfileService.defaultConfigDir());
+        settingsService = new SettingsService(ProfileService.defaultConfigDir());
+        settings = settingsService.load();
         activeProfile = profileService.getOrCreateDefault(config.streamRegion());
 
         buffer = new FrameBuffer(activeProfile.preset().retentionMillis());
         captureBackend = new RobotCaptureBackend();
         captureService = new CaptureService(captureBackend, buffer,
                 activeProfile.streamRegion(), activeProfile.preset().bufferFps());
-        storageService = new StorageService(config.baseDir(), activeProfile.id(),
+        storageService = new StorageService(
+                settingsService.resolveOutputDir(settings), activeProfile.id(),
                 activeProfile.preset().normalizedFormat(), activeProfile.preset().jpegQuality());
         ioExecutor = Executors.newFixedThreadPool(2, r -> {
             Thread t = new Thread(r, "io-executor");
@@ -96,6 +110,7 @@ public class Main extends Application {
                 ioExecutor, burstScheduler);
         notifications = new NotificationService();
         hotkeyService = new HotkeyService();
+        hotkeyService.setBindings(settingsService.resolveBindings(settings));
 
         statusLabel = new Label();
         profileInfoLabel = new Label();
@@ -158,8 +173,7 @@ public class Main extends Application {
         deleteLayoutBtn.setOnAction(e -> deleteActiveLayout());
 
         presetBox = new ComboBox<>();
-        presetBox.getItems().addAll(CapturePreset.HIGH_QUALITY, CapturePreset.LOW_MEMORY,
-                CapturePreset.REACTION);
+        presetBox.getItems().setAll(allPresets());
         presetBox.setConverter(new StringConverter<>() {
             @Override
             public String toString(CapturePreset p) {
@@ -202,15 +216,11 @@ public class Main extends Application {
         Button burstBtn = new Button("Camera Burst (Ctrl+Shift+F11)");
         burstBtn.setOnAction(e -> doBurst());
         Button pauseBtn = new Button("Pause / Resume");
-        pauseBtn.setOnAction(e -> {
-            if (captureService.isRunning()) {
-                captureService.stop();
-                statusLabel.setText("Paused — buffering OFF");
-            } else {
-                captureService.start();
-                updateStatus("Capturing resumed");
-            }
-        });
+        pauseBtn.setOnAction(e -> togglePause());
+        Button capturesBtn = new Button("Open Captures");
+        capturesBtn.setOnAction(e -> openCaptures());
+        Button settingsBtn = new Button("Settings");
+        settingsBtn.setOnAction(e -> openSettings());
 
         HBox profileRow = new HBox(8, new Label("Profile:"), profileBox, newProfileBtn);
         HBox layoutRow = new HBox(8, new Label("Layout:"), layoutBox, newLayoutBtn,
@@ -226,22 +236,36 @@ public class Main extends Application {
         previewBtn.setOnAction(e -> showPreview());
         HBox regionRow = new HBox(8, repositionBtn, editCameraBtn, previewBtn);
         VBox root = new VBox(10,
-                new Label("Live Screenshot Capture — Fase 5 (Layouts)"),
+                new Label("Live Screenshot Capture — Fase 6 (Desktop UX)"),
                 profileRow,
                 layoutRow,
                 presetRow,
                 profileInfoLabel,
                 statusLabel,
-                new Label("Output: " + config.baseDir().toAbsolutePath()),
-                buttons, regionRow, logArea);
+                new Label("Output: " + storageService.getBaseDir().toAbsolutePath()),
+                buttons, new HBox(8, capturesBtn, settingsBtn), regionRow, logArea);
         root.setPadding(new Insets(12));
         refreshLayouts();
+        applyFeedbackSettings();
         updateStatus("Capturing");
 
+        primaryStage = stage;
         stage.setTitle("Live Screenshot Capture");
-        stage.setScene(new Scene(root, 720, 520));
-        stage.setOnCloseRequest(e -> shutdown());
-        stage.show();
+        stage.setScene(new Scene(root, 720, 560));
+        stage.setOnCloseRequest(e -> {
+            if (settings.closeToTray() && trayManager != null && trayManager.isInstalled()) {
+                e.consume();
+                stage.hide();
+                notifications.notify("Minimized to tray — use the tray icon to exit.");
+            }
+        });
+
+        installTray();
+        if (settings.startMinimized() && trayManager != null && trayManager.isInstalled()) {
+            log.info("Starting minimized to tray");
+        } else {
+            stage.show();
+        }
     }
 
     private void refreshProfiles() {
@@ -327,6 +351,170 @@ public class Main extends Application {
             notifications.notify("Layout deleted: " + active.name());
         } catch (Exception e) {
             notifications.notify("Cannot delete layout: " + e.getMessage());
+        }
+    }
+
+    private List<CapturePreset> allPresets() {
+        List<CapturePreset> all = new ArrayList<>();
+        all.add(CapturePreset.HIGH_QUALITY);
+        all.add(CapturePreset.LOW_MEMORY);
+        all.add(CapturePreset.REACTION);
+        all.addAll(settings.customPresets());
+        return all;
+    }
+
+    private void togglePause() {
+        if (captureService.isRunning()) {
+            captureService.stop();
+            statusLabel.setText("Paused — buffering OFF");
+        } else {
+            captureService.start();
+            updateStatus("Capturing resumed");
+        }
+        refreshTray();
+    }
+
+    private void openCaptures() {
+        try {
+            java.nio.file.Files.createDirectories(storageService.getBaseDir());
+            Desktop.getDesktop().open(storageService.getBaseDir().toFile());
+        } catch (Exception e) {
+            notifications.notify("Cannot open captures folder: " + e.getMessage());
+        }
+    }
+
+    private void openSettings() {
+        SettingsWindow.show(window(), settingsService, new SettingsWindow.Listener() {
+            @Override
+            public void onGeneralSaved(Settings updated) {
+                settings = updated;
+                storageService.setBaseDir(settingsService.resolveOutputDir(updated));
+                applyFeedbackSettings();
+            }
+
+            @Override
+            public void onHotkeysSaved(Map<HotkeyAction, Set<Integer>> bindings) {
+                hotkeyService.setBindings(bindings);
+            }
+
+            @Override
+            public void onPresetsChanged() {
+                settings = settingsService.load();
+                CapturePreset keep = activeProfile.preset();
+                presetBox.getItems().setAll(allPresets());
+                presetBox.getItems().stream()
+                        .filter(p -> p.id().equals(keep.id()))
+                        .findFirst()
+                        .ifPresentOrElse(presetBox::setValue, () -> presetBox.setValue(keep));
+            }
+        }, notifications::notify);
+    }
+
+    private void applyFeedbackSettings() {
+        notifications.setBalloonEnabled(settings.trayBalloon());
+        notifications.setSoundEnabled(settings.sound());
+    }
+
+    private void showMainWindow() {
+        if (primaryStage != null) {
+            primaryStage.show();
+            primaryStage.toFront();
+        }
+    }
+
+    private void installTray() {
+        if (!TrayManager.isSupported()) {
+            log.info("System tray not available, running with window only");
+            return;
+        }
+        Platform.setImplicitExit(false);
+        trayManager = new TrayManager(new TrayManager.Actions() {
+            @Override
+            public void showWindow() {
+                Platform.runLater(() -> showMainWindow());
+            }
+
+            @Override
+            public void captureCamera() {
+                onHotkey(HotkeyAction.CAPTURE_CAMERA);
+            }
+
+            @Override
+            public void captureStream() {
+                onHotkey(HotkeyAction.CAPTURE_STREAM);
+            }
+
+            @Override
+            public void captureBurst() {
+                onHotkey(HotkeyAction.CAPTURE_BURST);
+            }
+
+            @Override
+            public void togglePause() {
+                Platform.runLater(() -> Main.this.togglePause());
+            }
+
+            @Override
+            public void openCaptures() {
+                Platform.runLater(() -> openCaptures());
+            }
+
+            @Override
+            public void openSettings() {
+                Platform.runLater(() -> openSettings());
+            }
+
+            @Override
+            public void selectProfile(String profileId) {
+                Platform.runLater(() -> {
+                    try {
+                        profileService.get(profileId).ifPresent(p -> {
+                            if (!p.id().equals(activeProfile.id())) {
+                                switchProfile(p);
+                            }
+                        });
+                    } catch (Exception e) {
+                        notifications.notify("Failed to switch profile: " + e.getMessage());
+                    }
+                });
+            }
+
+            @Override
+            public void selectLayout(String layoutId) {
+                Platform.runLater(() -> {
+                    if (!layoutId.equals(activeProfile.activeLayout().id())) {
+                        switchLayout(layoutId);
+                    }
+                });
+            }
+
+            @Override
+            public void exit() {
+                Platform.runLater(() -> {
+                    primaryStage = null;
+                    shutdown();
+                });
+            }
+        });
+        trayManager.install();
+        notifications.onBalloon(trayManager::displayInfo);
+        refreshTray();
+    }
+
+    private String currentStatusLine() {
+        return (captureService != null && captureService.isRunning() ? "Capturing: " : "Paused: ")
+                + activeProfile.name() + " / " + activeProfile.activeLayout().name();
+    }
+
+    private void refreshTray() {
+        if (trayManager == null || !trayManager.isInstalled()) {
+            return;
+        }
+        try {
+            trayManager.refresh(currentStatusLine(), profileService.list(),
+                    activeProfile.id(), !captureService.isRunning());
+        } catch (Exception e) {
+            log.warn("Could not refresh tray menu", e);
         }
     }
 
@@ -470,6 +658,7 @@ public class Main extends Application {
         statusLabel.setText(info);
         profileInfoLabel.setText("Camera region (relative): " + activeProfile.cameraRegion().bounds());
         updateMemEstimate();
+        refreshTray();
     }
 
     private void updateMemEstimate() {
@@ -539,7 +728,11 @@ public class Main extends Application {
         if (burstScheduler != null) {
             burstScheduler.shutdownNow();
         }
+        if (trayManager != null) {
+            trayManager.remove();
+        }
         Platform.exit();
+        System.exit(0);
     }
 
     public static void main(String[] args) {

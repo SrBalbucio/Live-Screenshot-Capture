@@ -4,6 +4,7 @@ import com.github.kwhat.jnativehook.GlobalScreen;
 import com.github.kwhat.jnativehook.NativeHookException;
 import com.github.kwhat.jnativehook.keyboard.NativeKeyEvent;
 import com.github.kwhat.jnativehook.keyboard.NativeKeyListener;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -18,7 +19,28 @@ public class HotkeyService implements NativeKeyListener {
     private final Set<Integer> pressed = ConcurrentHashMap.newKeySet();
     private final CopyOnWriteArrayList<Consumer<HotkeyAction>> listeners = new CopyOnWriteArrayList<>();
     private final CopyOnWriteArrayList<Consumer<Integer>> layoutListeners = new CopyOnWriteArrayList<>();
+    private volatile Map<HotkeyAction, Set<Integer>> bindings = defaultBindings();
     private volatile boolean running;
+
+    public static Map<HotkeyAction, Set<Integer>> defaultBindings() {
+        Map<HotkeyAction, Set<Integer>> map = new java.util.EnumMap<>(HotkeyAction.class);
+        map.put(HotkeyAction.CAPTURE_CAMERA, HotkeyCombo.parse("CTRL+SHIFT+F9"));
+        map.put(HotkeyAction.CAPTURE_STREAM, HotkeyCombo.parse("CTRL+SHIFT+F10"));
+        map.put(HotkeyAction.CAPTURE_BURST, HotkeyCombo.parse("CTRL+SHIFT+F11"));
+        return map;
+    }
+
+    public void setBindings(Map<HotkeyAction, Set<Integer>> bindings) {
+        Map<HotkeyAction, Set<Integer>> copy = new java.util.EnumMap<>(HotkeyAction.class);
+        for (Map.Entry<HotkeyAction, Set<Integer>> e : bindings.entrySet()) {
+            copy.put(e.getKey(), Set.copyOf(e.getValue()));
+        }
+        this.bindings = copy;
+    }
+
+    public Map<HotkeyAction, Set<Integer>> getBindings() {
+        return bindings;
+    }
 
     public void addListener(Consumer<HotkeyAction> listener) {
         listeners.add(listener);
@@ -38,8 +60,10 @@ public class HotkeyService implements NativeKeyListener {
         GlobalScreen.registerNativeHook();
         GlobalScreen.addNativeKeyListener(this);
         running = true;
-        log.info("Global hotkeys active: Ctrl+Shift+F9=camera, Ctrl+Shift+F10=stream,"
-                + " Ctrl+Shift+F11=burst, Ctrl+1..9=layout");
+        log.info("Global hotkeys active: camera={}, stream={}, burst={}, Ctrl+1..9=layout",
+                HotkeyCombo.format(bindings.get(HotkeyAction.CAPTURE_CAMERA)),
+                HotkeyCombo.format(bindings.get(HotkeyAction.CAPTURE_STREAM)),
+                HotkeyCombo.format(bindings.get(HotkeyAction.CAPTURE_BURST)));
     }
 
     public synchronized void stop() {
@@ -64,15 +88,14 @@ public class HotkeyService implements NativeKeyListener {
         pressed.add(e.getKeyCode());
         boolean ctrl = pressed.contains(NativeKeyEvent.VC_CONTROL);
         boolean shift = pressed.contains(NativeKeyEvent.VC_SHIFT);
-        if (ctrl && shift) {
-            if (e.getKeyCode() == NativeKeyEvent.VC_F9) {
-                fire(HotkeyAction.CAPTURE_CAMERA);
-            } else if (e.getKeyCode() == NativeKeyEvent.VC_F10) {
-                fire(HotkeyAction.CAPTURE_STREAM);
-            } else if (e.getKeyCode() == NativeKeyEvent.VC_F11) {
-                fire(HotkeyAction.CAPTURE_BURST);
+        if (!HotkeyCombo.isModifier(e.getKeyCode())) {
+            for (Map.Entry<HotkeyAction, Set<Integer>> binding : bindings.entrySet()) {
+                if (pressed.containsAll(binding.getValue())) {
+                    fire(binding.getKey());
+                }
             }
-        } else if (ctrl && !shift) {
+        }
+        if (ctrl && !shift) {
             int layoutIndex = digitToLayoutIndex(e.getKeyCode());
             if (layoutIndex > 0) {
                 fireLayout(layoutIndex);
