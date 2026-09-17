@@ -234,6 +234,7 @@ public class Main extends Application {
                         RelativeRectangle bounds = opt.get();
                         activeProfile = profileService.updateCameraRegion(
                                 activeProfile.id(), activeProfile.activeLayout().id(), bounds);
+                        captureService.getBuffer().clear();
                         refreshProfiles();
                         updateStatus("Camera updated");
                         notifications.notify("Camera updated to " + bounds);

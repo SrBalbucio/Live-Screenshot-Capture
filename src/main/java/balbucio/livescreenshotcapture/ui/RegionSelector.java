@@ -4,17 +4,22 @@ import balbucio.livescreenshotcapture.model.RelativeRectangle;
 import balbucio.livescreenshotcapture.model.ScreenRegion;
 import balbucio.livescreenshotcapture.region.RegionGeometry;
 import java.awt.Rectangle;
+import java.awt.Robot;
+import java.awt.image.BufferedImage;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import javafx.application.Platform;
+import javafx.embed.swing.SwingFXUtils;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Pane;
 import javafx.scene.paint.Color;
@@ -22,8 +27,12 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class RegionSelector {
+    private static final Logger log = LoggerFactory.getLogger(RegionSelector.class);
+
     private RegionSelector() {
     }
 
@@ -77,6 +86,17 @@ public class RegionSelector {
 
         Pane root = new Pane();
         root.setPrefSize(vw, vh);
+
+        Image background = captureDesktop(virtual);
+        if (background != null) {
+            ImageView bgView = new ImageView(background);
+            bgView.setFitWidth(vw);
+            bgView.setFitHeight(vh);
+            bgView.setPreserveRatio(false);
+            bgView.setSmooth(true);
+            root.getChildren().add(bgView);
+        }
+
         Canvas canvas = new Canvas(vw, vh);
 
         Pane glass = new Pane();
@@ -187,6 +207,20 @@ public class RegionSelector {
             gc.strokeRect(lx, ly, selection.width, selection.height);
             gc.setFill(Color.LIME);
             gc.fillText(selection.width + " x " + selection.height, lx + 6, ly + 16);
+        }
+    }
+
+    private static Image captureDesktop(Rectangle2D virtual) {
+        try {
+            Robot robot = new Robot();
+            BufferedImage shot = robot.createScreenCapture(new Rectangle(
+                    (int) virtual.getMinX(), (int) virtual.getMinY(),
+                    (int) virtual.getWidth(), (int) virtual.getHeight()));
+            return SwingFXUtils.toFXImage(shot, null);
+        } catch (Exception e) {
+            log.warn("Desktop background capture failed, overlay will use live transparency: {}",
+                    e.getMessage());
+            return null;
         }
     }
 
