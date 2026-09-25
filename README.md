@@ -3,6 +3,8 @@
 Lightweight Java 21 / JavaFX desktop app to capture screenshots from livestreams —
 including moments you noticed a second too late (circular frame buffer + burst).
 
+> This project uses [capture-graphics](https://github.com/SrBalbucio/capture-graphics) for screen capture.
+
 ## Run (dev)
 
 ```powershell
