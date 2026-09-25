@@ -16,12 +16,37 @@
         <slf4j.version>2.0.13</slf4j.version>
         <logback.version>1.5.6</logback.version>
         <jnativehook.version>2.2.2</jnativehook.version>
+        <capturegraphics.version>1.0</capturegraphics.version>
         <junit.version>5.10.3</junit.version>
         <mockito.version>5.11.0</mockito.version>
         <assertj.version>3.25.3</assertj.version>
     </properties>
 
+    <repositories>
+        <repository>
+            <id>hyperpowered-maven-releases</id>
+            <name>HyperPowered Maven Repository</name>
+            <url>https://maven.dev.hyperpowered.net/releases</url>
+        </repository>
+    </repositories>
+
     <dependencies>
+        <dependency>
+            <groupId>balbucio.capturegraphics</groupId>
+            <artifactId>capture-api</artifactId>
+            <version>${capturegraphics.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>balbucio.capturegraphics</groupId>
+            <artifactId>capture-core</artifactId>
+            <version>${capturegraphics.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>balbucio.capturegraphics</groupId>
+            <artifactId>capture-backend-win-dxgi</artifactId>
+            <version>${capturegraphics.version}</version>
+        </dependency>
+
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
@@ -58,6 +83,11 @@
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>jul-to-slf4j</artifactId>
             <version>${slf4j.version}</version>
         </dependency>
         <dependency>
@@ -107,6 +137,9 @@
                 <version>0.0.8</version>
                 <configuration>
                     <mainClass>balbucio.livescreenshotcapture.Main</mainClass>
+                    <jvmArgs>
+                        <jvmArg>--enable-native-access=ALL-UNNAMED</jvmArg>
+                    </jvmArgs>
                 </configuration>
             </plugin>
             <plugin>
