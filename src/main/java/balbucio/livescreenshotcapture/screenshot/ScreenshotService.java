@@ -1,5 +1,6 @@
 package balbucio.livescreenshotcapture.screenshot;
 
+import balbucio.livescreenshotcapture.capture.BgraImages;
 import balbucio.livescreenshotcapture.capture.CapturedFrame;
 import balbucio.livescreenshotcapture.capture.CaptureService;
 import balbucio.livescreenshotcapture.model.CaptureRegion;
@@ -69,10 +70,10 @@ public class ScreenshotService {
             log.warn("No buffered frame available for offset {}", offsetFromNowMillis);
             return CompletableFuture.completedFuture(Optional.empty());
         }
-        BufferedImage source = frame.get().image();
+        CapturedFrame source = frame.get();
         Rectangle cropRect = regionService.toFrameRelative(
-                captureService.getStreamRegion(), region.bounds(), source.getWidth(), source.getHeight());
-        BufferedImage cropped = regionService.crop(source, cropRect);
+                captureService.getStreamRegion(), region.bounds(), source.width(), source.height());
+        BufferedImage cropped = BgraImages.cropToImage(source, cropRect);
         int upscale = upscaleFor(region);
         BufferedImage out = upscale > 1 && upscaler != null
                 ? upscaler.upscale(cropped, upscale)

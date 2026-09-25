@@ -1,7 +1,11 @@
 package balbucio.livescreenshotcapture;
 
 import balbucio.livescreenshotcapture.buffer.FrameBuffer;
+import balbucio.livescreenshotcapture.capture.BgraImages;
+import balbucio.livescreenshotcapture.capture.CapturedFrame;
+import balbucio.livescreenshotcapture.capture.CaptureBackend;
 import balbucio.livescreenshotcapture.capture.CaptureService;
+import balbucio.livescreenshotcapture.capture.DxgiCaptureBackend;
 import balbucio.livescreenshotcapture.capture.RobotCaptureBackend;
 import balbucio.livescreenshotcapture.config.AppConfig;
 import balbucio.livescreenshotcapture.config.Settings;
@@ -75,7 +79,7 @@ public class Main extends Application {
     private Profile activeProfile;
     private ExecutorService ioExecutor;
     private FrameBuffer buffer;
-    private RobotCaptureBackend captureBackend;
+    private CaptureBackend captureBackend;
     private Label statusLabel;
     private Label profileInfoLabel;
     private Label memLabel;
@@ -110,7 +114,13 @@ public class Main extends Application {
         activeProfile = profileService.getOrCreateDefault(config.streamRegion());
 
         buffer = new FrameBuffer(activeProfile.preset().retentionMillis());
-        captureBackend = new RobotCaptureBackend();
+        try {
+            captureBackend = new DxgiCaptureBackend();
+        } catch (Exception e) {
+            log.info("GPU capture unavailable ({}), falling back to AWT Robot", e.getMessage());
+            captureBackend = new RobotCaptureBackend();
+        }
+        log.info("Capture backend: {}", captureBackend.id());
         captureService = new CaptureService(captureBackend, buffer,
                 activeProfile.streamRegion(), activeProfile.preset().bufferFps());
         storageService = new StorageService(
@@ -684,10 +694,12 @@ public class Main extends Application {
 
     private void showPreview() {
         BufferedImage frame = captureService.latest()
-                .map(f -> f.image())
+                .map(BgraImages::toImage)
                 .orElseGet(() -> {
                     try {
-                        return captureBackend.capture(activeProfile.streamRegion().toAwtRectangle());
+                        CapturedFrame f = captureBackend.capture(
+                                activeProfile.streamRegion().toAwtRectangle());
+                        return f == null ? null : BgraImages.toImage(f);
                     } catch (Exception e) {
                         notifications.notify("Preview failed: " + e.getMessage());
                         return null;
@@ -826,6 +838,12 @@ public class Main extends Application {
             }
         } catch (Exception ignored) {
         }
+        if (captureBackend instanceof AutoCloseable backend) {
+            try {
+                backend.close();
+            } catch (Exception ignored) {
+            }
+        }
         try {
             if (hotkeyService != null) {
                 hotkeyService.stop();
@@ -849,6 +867,8 @@ public class Main extends Application {
     }
 
     public static void main(String[] args) {
+        java.util.logging.LogManager.getLogManager().reset();
+        org.slf4j.bridge.SLF4JBridgeHandler.install();
         java.nio.file.Path logDir = ProfileService.defaultConfigDir().resolve("logs");
         try {
             java.nio.file.Files.createDirectories(logDir);

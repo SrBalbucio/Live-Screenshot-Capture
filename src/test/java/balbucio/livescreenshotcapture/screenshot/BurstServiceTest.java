@@ -4,6 +4,7 @@ import balbucio.livescreenshotcapture.buffer.FrameBuffer;
 import balbucio.livescreenshotcapture.capture.CaptureBackend;
 import balbucio.livescreenshotcapture.capture.CaptureService;
 import balbucio.livescreenshotcapture.capture.CapturedFrame;
+import balbucio.livescreenshotcapture.capture.TestFrames;
 import balbucio.livescreenshotcapture.model.CaptureRegion;
 import balbucio.livescreenshotcapture.model.ScreenRegion;
 import balbucio.livescreenshotcapture.region.RegionService;
@@ -20,24 +21,27 @@ import org.junit.jupiter.api.io.TempDir;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BurstServiceTest {
-    private static BufferedImage img(int seed) {
-        BufferedImage img = new BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB);
-        img.setRGB(0, 0, seed);
-        return img;
+    private static CapturedFrame frame(long ts, int seed) {
+        return TestFrames.solid(ts, 64, 64, 0xFF000000 | seed);
     }
 
     private CaptureService serviceWithFrames(ScreenRegion stream) {
         CaptureBackend stub = new CaptureBackend() {
             @Override
-            public BufferedImage capture(Rectangle area) {
-                return img(1);
+            public String id() {
+                return "stub";
+            }
+
+            @Override
+            public CapturedFrame capture(Rectangle area) {
+                return frame(System.currentTimeMillis(), 1);
             }
         };
         FrameBuffer buffer = new FrameBuffer(10_000);
         CaptureService service = new CaptureService(stub, buffer, stream, 10);
         long now = System.currentTimeMillis();
-        buffer.push(new CapturedFrame(now - 900, img(2)));
-        buffer.push(new CapturedFrame(now - 100, img(3)));
+        buffer.push(frame(now - 900, 2));
+        buffer.push(frame(now - 100, 3));
         return service;
     }
 

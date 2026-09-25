@@ -2,7 +2,6 @@ package balbucio.livescreenshotcapture.capture;
 
 import balbucio.livescreenshotcapture.buffer.FrameBuffer;
 import balbucio.livescreenshotcapture.model.ScreenRegion;
-import java.awt.image.BufferedImage;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -63,8 +62,11 @@ public class CaptureService {
 
     void captureOnce() {
         try {
-            BufferedImage img = backend.capture(streamRegion.toAwtRectangle());
-            buffer.push(new CapturedFrame(System.currentTimeMillis(), img));
+            CapturedFrame frame = backend.capture(streamRegion.toAwtRectangle());
+            if (frame == null) {
+                return;
+            }
+            buffer.push(frame);
             captureCount.incrementAndGet();
         } catch (Exception e) {
             errorCount.incrementAndGet();

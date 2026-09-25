@@ -4,6 +4,7 @@ import balbucio.livescreenshotcapture.buffer.FrameBuffer;
 import balbucio.livescreenshotcapture.capture.CaptureBackend;
 import balbucio.livescreenshotcapture.capture.CaptureService;
 import balbucio.livescreenshotcapture.capture.CapturedFrame;
+import balbucio.livescreenshotcapture.capture.TestFrames;
 import balbucio.livescreenshotcapture.model.CaptureRegion;
 import balbucio.livescreenshotcapture.model.ScreenRegion;
 import balbucio.livescreenshotcapture.region.RegionService;
@@ -33,23 +34,28 @@ class UpscaleTest {
         assertThat(upscaler.upscale(same, 1)).isSameAs(same);
     }
 
-    private CaptureService serviceWithFrame(ScreenRegion stream, BufferedImage frame) {
+    private CaptureService serviceWithFrame(ScreenRegion stream, int w, int h) {
         CaptureBackend stub = new CaptureBackend() {
             @Override
-            public BufferedImage capture(Rectangle area) {
-                return frame;
+            public String id() {
+                return "stub";
+            }
+
+            @Override
+            public CapturedFrame capture(Rectangle area) {
+                return TestFrames.solid(System.currentTimeMillis(), w, h);
             }
         };
         FrameBuffer buffer = new FrameBuffer(10_000);
         CaptureService service = new CaptureService(stub, buffer, stream, 10);
-        buffer.push(new CapturedFrame(System.currentTimeMillis(), frame));
+        buffer.push(TestFrames.solid(System.currentTimeMillis(), w, h));
         return service;
     }
 
     @Test
     void cameraCaptureIsUpscaledWithSuffix(@TempDir Path tmp) throws Exception {
         ScreenRegion stream = new ScreenRegion(0, 0, 200, 100);
-        CaptureService captureService = serviceWithFrame(stream, img(200, 100));
+        CaptureService captureService = serviceWithFrame(stream, 200, 100);
         StorageService storage = new StorageService(tmp, "tester", "png", 0.92f);
         ScreenshotService screenshots = new ScreenshotService(captureService, new RegionService(),
                 storage, Runnable::run, new BicubicUpscaler(), 2);
@@ -65,7 +71,7 @@ class UpscaleTest {
     @Test
     void streamCaptureNeverUpscaled(@TempDir Path tmp) throws Exception {
         ScreenRegion stream = new ScreenRegion(0, 0, 200, 100);
-        CaptureService captureService = serviceWithFrame(stream, img(200, 100));
+        CaptureService captureService = serviceWithFrame(stream, 200, 100);
         StorageService storage = new StorageService(tmp, "tester", "png", 0.92f);
         ScreenshotService screenshots = new ScreenshotService(captureService, new RegionService(),
                 storage, Runnable::run, new BicubicUpscaler(), 2);
@@ -78,7 +84,7 @@ class UpscaleTest {
     @Test
     void keepOriginalSavesBothVersions(@TempDir Path tmp) throws Exception {
         ScreenRegion stream = new ScreenRegion(0, 0, 200, 100);
-        CaptureService captureService = serviceWithFrame(stream, img(200, 100));
+        CaptureService captureService = serviceWithFrame(stream, 200, 100);
         StorageService storage = new StorageService(tmp, "tester", "png", 0.92f);
         ScreenshotService screenshots = new ScreenshotService(captureService, new RegionService(),
                 storage, Runnable::run, new BicubicUpscaler(), 2, true);
@@ -101,7 +107,7 @@ class UpscaleTest {
     @Test
     void keepOriginalOffSavesSingleFile(@TempDir Path tmp) throws Exception {
         ScreenRegion stream = new ScreenRegion(0, 0, 200, 100);
-        CaptureService captureService = serviceWithFrame(stream, img(200, 100));
+        CaptureService captureService = serviceWithFrame(stream, 200, 100);
         StorageService storage = new StorageService(tmp, "tester", "png", 0.92f);
         ScreenshotService screenshots = new ScreenshotService(captureService, new RegionService(),
                 storage, Runnable::run, new BicubicUpscaler(), 2, false);

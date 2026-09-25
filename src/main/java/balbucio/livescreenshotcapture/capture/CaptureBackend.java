@@ -1,8 +1,17 @@
 package balbucio.livescreenshotcapture.capture;
 
 import java.awt.Rectangle;
-import java.awt.image.BufferedImage;
 
+/**
+ * pluggable frame source. Implementations deliver {@link CapturedFrame BGRA frames}.
+ *
+ * <p>Contract: implementations may return {@code null} to signal "screen unchanged
+ * since the previously delivered frame" (DXGI only produces frames on real updates);
+ * callers must skip buffering those ticks. {@code null} is never returned before the
+ * first delivered frame.
+ */
 public interface CaptureBackend {
-    BufferedImage capture(Rectangle area) throws CaptureException;
+    String id();
+
+    CapturedFrame capture(Rectangle area) throws CaptureException;
 }
