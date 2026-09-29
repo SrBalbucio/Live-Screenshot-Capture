@@ -12,14 +12,14 @@
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <javafx.version>21.0.4</javafx.version>
-        <jackson.version>2.17.2</jackson.version>
+        <jackson.version>2.18.9</jackson.version>
         <slf4j.version>2.0.13</slf4j.version>
         <logback.version>1.5.6</logback.version>
         <jnativehook.version>2.2.2</jnativehook.version>
         <capturegraphics.version>1.0</capturegraphics.version>
         <junit.version>5.10.3</junit.version>
         <mockito.version>5.11.0</mockito.version>
-        <assertj.version>3.25.3</assertj.version>
+        <assertj.version>3.27.7</assertj.version>
     </properties>
 
     <repositories>
