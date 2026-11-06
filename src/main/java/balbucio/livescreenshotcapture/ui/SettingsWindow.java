@@ -167,7 +167,9 @@ public class SettingsWindow {
                     balloon.isSelected(), sound.isSelected(), startMinimized.isSelected(),
                     closeToTray.isSelected(), launchOnStartup.isSelected(),
                     current.customPresets(), upscaleBox.getValue(),
-                    keepOriginal.isSelected(), quotaBox.getValue());
+                    keepOriginal.isSelected(), quotaBox.getValue(),
+                    current.autoCaptureIntervalSeconds(), current.autoCaptureRegion(),
+                    current.autoCaptureMaxMinutes());
             try {
                 service.save(updated);
                 try {
@@ -244,7 +246,8 @@ public class SettingsWindow {
                     current.sound(), current.startMinimized(), current.closeToTray(),
                     current.launchOnStartup(), current.customPresets(),
                     current.cameraUpscale(), current.keepOriginal(),
-                    current.storageQuotaMb());
+                    current.storageQuotaMb(), current.autoCaptureIntervalSeconds(),
+                    current.autoCaptureRegion(), current.autoCaptureMaxMinutes());
             try {
                 service.save(updated);
                 listener.onHotkeysSaved(new EnumMap<>(pending));
@@ -336,7 +339,8 @@ public class SettingsWindow {
                         current.trayBalloon(), current.sound(), current.startMinimized(),
                         current.closeToTray(), current.launchOnStartup(), customs,
                         current.cameraUpscale(), current.keepOriginal(),
-                        current.storageQuotaMb()));
+                        current.storageQuotaMb(), current.autoCaptureIntervalSeconds(),
+                        current.autoCaptureRegion(), current.autoCaptureMaxMinutes()));
                 reload.run();
                 listener.onPresetsChanged();
                 notifier.accept("Preset created: " + preset.name());
@@ -358,7 +362,8 @@ public class SettingsWindow {
                         current.trayBalloon(), current.sound(), current.startMinimized(),
                         current.closeToTray(), current.launchOnStartup(), customs,
                         current.cameraUpscale(), current.keepOriginal(),
-                        current.storageQuotaMb()));
+                        current.storageQuotaMb(), current.autoCaptureIntervalSeconds(),
+                        current.autoCaptureRegion(), current.autoCaptureMaxMinutes()));
                 reload.run();
                 listener.onPresetsChanged();
             } catch (Exception ex) {

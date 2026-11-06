@@ -117,7 +117,8 @@ public class SettingsService {
         return new Settings(outputDir, hotkeys, loaded.trayBalloon(), loaded.sound(),
                 loaded.startMinimized(), loaded.closeToTray(), loaded.launchOnStartup(),
                 loaded.customPresets(), loaded.cameraUpscale(), loaded.keepOriginal(),
-                loaded.storageQuotaMb());
+                loaded.storageQuotaMb(), loaded.autoCaptureIntervalSeconds(),
+                loaded.autoCaptureRegion(), loaded.autoCaptureMaxMinutes());
     }
 
     private boolean isWindows() {

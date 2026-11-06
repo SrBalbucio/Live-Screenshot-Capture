@@ -25,7 +25,8 @@ class SettingsServiceTest {
                 Map.of("CAPTURE_CAMERA", "Ctrl+Alt+C",
                         "CAPTURE_STREAM", "Ctrl+Alt+S",
                         "CAPTURE_BURST", "Ctrl+Alt+B"),
-                false, true, true, false, false, List.of(custom), 3, true, 512);
+                false, true, true, false, false, List.of(custom), 3, true, 512,
+                15, "stream", 30);
         service.save(updated);
 
         Settings reloaded = service.load();
@@ -34,6 +35,9 @@ class SettingsServiceTest {
         assertThat(reloaded.effectiveCameraUpscale()).isEqualTo(3);
         assertThat(reloaded.keepOriginal()).isTrue();
         assertThat(reloaded.effectiveQuotaBytes()).isEqualTo(512L * 1024 * 1024);
+        assertThat(reloaded.autoCaptureIntervalSeconds()).isEqualTo(15);
+        assertThat(reloaded.autoCaptureRegion()).isEqualTo("stream");
+        assertThat(reloaded.autoCaptureMaxMinutes()).isEqualTo(30);
         assertThat(service.resolveOutputDir(reloaded)).isEqualTo(Path.of("D:/caps"));
 
         Map<HotkeyAction, Set<Integer>> bindings = service.resolveBindings(reloaded);
@@ -46,7 +50,7 @@ class SettingsServiceTest {
     void invalidComboFallsBackToDefault(@TempDir Path tmp) throws Exception {
         SettingsService service = new SettingsService(tmp);
         Settings bad = new Settings("captures", Map.of("CAPTURE_CAMERA", "CTRL+NOPE"),
-                true, false, false, true, false, List.of(), 0, false, 0);
+                true, false, false, true, false, List.of(), 0, false, 0, 10, "camera", 60);
         service.save(bad);
         Map<HotkeyAction, Set<Integer>> bindings =
                 service.resolveBindings(service.load());
@@ -60,9 +64,15 @@ class SettingsServiceTest {
         SettingsService service = new SettingsService(tmp);
         assertThat(service.load().effectiveCameraUpscale()).isEqualTo(2);
         Settings legacy = new Settings("captures", Map.of(), true, false, false, true, false,
-                List.of(), 0, false, 0);
+                List.of(), 0, false, 0, 0, null, null);
         assertThat(legacy.effectiveCameraUpscale()).isEqualTo(2);
         assertThat(service.load().keepOriginal()).isFalse();
+        assertThat(legacy.autoCaptureIntervalSeconds())
+                .isEqualTo(Settings.DEFAULT_AUTO_CAPTURE_INTERVAL_SECONDS);
+        assertThat(legacy.autoCaptureRegion()).isEqualTo(Settings.DEFAULT_AUTO_CAPTURE_REGION);
+        assertThat(legacy.autoCaptureMaxMinutes())
+                .isEqualTo(Settings.DEFAULT_AUTO_CAPTURE_MAX_MINUTES);
+        assertThat(legacy.autoCaptureUnlimited()).isFalse();
     }
 
     @Test

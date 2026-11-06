@@ -26,6 +26,7 @@ import balbucio.livescreenshotcapture.screenshot.BicubicUpscaler;
 import balbucio.livescreenshotcapture.screenshot.BurstFrame;
 import balbucio.livescreenshotcapture.screenshot.BurstSelectionService;
 import balbucio.livescreenshotcapture.screenshot.BurstService;
+import balbucio.livescreenshotcapture.screenshot.IntervalCaptureService;
 import balbucio.livescreenshotcapture.screenshot.ScreenshotService;
 import balbucio.livescreenshotcapture.storage.StorageService;
 import balbucio.livescreenshotcapture.ui.BurstGalleryWindow;
@@ -50,6 +51,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.Spinner;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextInputDialog;
 import javafx.scene.layout.HBox;
@@ -67,6 +69,7 @@ public class Main extends Application {
     private HotkeyService hotkeyService;
     private ScreenshotService screenshotService;
     private BurstService burstService;
+    private IntervalCaptureService autoCaptureService;
     private ScheduledExecutorService burstScheduler;
     private StorageService storageService;
     private NotificationService notifications;
@@ -88,8 +91,13 @@ public class Main extends Application {
     private ComboBox<CapturePreset> presetBox;
     private ComboBox<Long> lookbackBox;
     private ComboBox<Layout> layoutBox;
+    private Button autoCaptureBtn;
+    private ComboBox<String> autoRegionBox;
+    private Spinner<Integer> autoIntervalSpinner;
+    private Spinner<Integer> autoMaxMinutesSpinner;
     private List<Layout> layoutOrder = new ArrayList<>();
     private boolean suppressComboEvents;
+    private boolean suppressAutoEvents;
 
     @Override
     public void start(Stage stage) throws Exception {
@@ -144,6 +152,32 @@ public class Main extends Application {
                 BurstService.DEFAULT_FUTURE_OFFSETS, new BicubicUpscaler(),
                 settings.effectiveCameraUpscale(), settings.keepOriginal());
         notifications = new NotificationService();
+        autoCaptureService = new IntervalCaptureService(captureService, regionService,
+                storageService, ioExecutor, this::autoCaptureRegion);
+        autoCaptureService.setListener(new IntervalCaptureService.Listener() {
+            @Override
+            public void onFrameSaved(Path path, IntervalCaptureService.Stats stats) {
+                Platform.runLater(Main.this::updateAutoStatus);
+            }
+
+            @Override
+            public void onSkipped(String reason, IntervalCaptureService.Stats stats) {
+                Platform.runLater(() -> {
+                    if (autoCaptureService.isRunning()) {
+                        updateAutoStatus();
+                    }
+                });
+            }
+
+            @Override
+            public void onStopped(String reason, IntervalCaptureService.Stats stats) {
+                Platform.runLater(() -> {
+                    updateAutoStatus();
+                    notifications.notify(autoCaptureStopMessage(reason));
+                    refreshTray();
+                });
+            }
+        });
         hotkeyService = new HotkeyService();
         hotkeyService.setBindings(settingsService.resolveBindings(settings));
 
@@ -266,6 +300,64 @@ public class Main extends Application {
         Button settingsBtn = new Button("Settings");
         settingsBtn.setOnAction(e -> openSettings());
 
+        autoCaptureBtn = new Button("Start Auto");
+        autoCaptureBtn.setOnAction(e -> toggleAutoCapture());
+
+        autoRegionBox = new ComboBox<>();
+        autoRegionBox.getItems().addAll("camera", "stream");
+        autoRegionBox.setConverter(new StringConverter<>() {
+            @Override
+            public String toString(String id) {
+                if (id == null) {
+                    return "";
+                }
+                return id.equals("stream") ? "Full Stream" : "Camera";
+            }
+
+            @Override
+            public String fromString(String label) {
+                return "Full Stream".equals(label) ? "stream" : "camera";
+            }
+        });
+        autoRegionBox.setValue(settings.autoCaptureRegion());
+        autoRegionBox.setOnAction(e -> {
+            if (suppressAutoEvents) {
+                return;
+            }
+            saveAutoSettings();
+            if (autoCaptureService.isRunning()) {
+                startAutoCapture();
+            }
+        });
+
+        autoIntervalSpinner = new Spinner<>(IntervalCaptureService.MIN_INTERVAL_SECONDS,
+                IntervalCaptureService.MAX_INTERVAL_SECONDS,
+                settings.autoCaptureIntervalSeconds(), 1);
+        autoIntervalSpinner.setEditable(true);
+        autoIntervalSpinner.setPrefWidth(90);
+        autoIntervalSpinner.valueProperty().addListener((obs, old, value) -> {
+            if (suppressAutoEvents || value == null) {
+                return;
+            }
+            saveAutoSettings();
+            autoCaptureService.setIntervalSeconds(value);
+        });
+
+        autoMaxMinutesSpinner = new Spinner<>(0, 1440, settings.autoCaptureMaxMinutes(), 15);
+        autoMaxMinutesSpinner.setEditable(true);
+        autoMaxMinutesSpinner.setPrefWidth(90);
+        autoMaxMinutesSpinner.valueProperty().addListener((obs, old, value) -> {
+            if (suppressAutoEvents || value == null) {
+                return;
+            }
+            saveAutoSettings();
+            autoCaptureService.setMaxMinutes(value);
+        });
+
+        HBox autoRow = new HBox(8, autoCaptureBtn, new Label("Region:"), autoRegionBox,
+                new Label("Every (s):"), autoIntervalSpinner,
+                new Label("Limit (min, 0 = unlimited):"), autoMaxMinutesSpinner);
+
         HBox profileRow = new HBox(8, new Label("Profile:"), profileBox, newProfileBtn);
         HBox layoutRow = new HBox(8, new Label("Layout:"), layoutBox, newLayoutBtn,
                 deleteLayoutBtn, new Label("(Ctrl+1..9)"));
@@ -287,7 +379,7 @@ public class Main extends Application {
                 profileInfoLabel,
                 statusLabel,
                 new Label("Output: " + storageService.getBaseDir().toAbsolutePath()),
-                buttons, new HBox(8, capturesBtn, settingsBtn), regionRow, logArea);
+                buttons, autoRow, new HBox(8, capturesBtn, settingsBtn), regionRow, logArea);
         root.setPadding(new Insets(12));
         refreshLayouts();
         applyFeedbackSettings();
@@ -347,6 +439,7 @@ public class Main extends Application {
     }
 
     private void switchLayout(String layoutId) {
+        stopAutoCapture("layout-switch");
         try {
             activeProfile = profileService.save(activeProfile.withActiveLayout(layoutId));
             refreshLayouts();
@@ -429,6 +522,106 @@ public class Main extends Application {
             updateStatus("Capturing resumed");
         }
         refreshTray();
+    }
+
+    private CaptureRegion autoCaptureRegion() {
+        return "stream".equals(settings.autoCaptureRegion())
+                ? CaptureRegion.FULL_STREAM
+                : activeProfile.cameraRegion();
+    }
+
+    private void toggleAutoCapture() {
+        if (autoCaptureService == null) {
+            return;
+        }
+        if (autoCaptureService.isRunning()) {
+            autoCaptureService.stop("manual");
+        } else {
+            startAutoCapture();
+        }
+    }
+
+    private void stopAutoCapture(String reason) {
+        if (autoCaptureService != null && autoCaptureService.isRunning()) {
+            autoCaptureService.stop(reason);
+        }
+    }
+
+    private void startAutoCapture() {
+        if (autoCaptureService == null) {
+            return;
+        }
+        try {
+            saveAutoSettings();
+            int interval = autoIntervalSpinner.getValue();
+            autoCaptureService.start(activeProfile.id(), activeProfile.name(),
+                    activeProfile.activeLayout().id(), activeProfile.activeLayout().name(),
+                    interval, autoMaxMinutesSpinner.getValue());
+            updateAutoStatus();
+            notifications.notify("Auto capture started — " + autoCaptureRegion().name()
+                    + " every " + interval + "s");
+            refreshTray();
+        } catch (Exception e) {
+            updateAutoStatus();
+            notifications.notify("Could not start auto capture: " + e.getMessage());
+        }
+    }
+
+    private void saveAutoSettings() {
+        if (autoIntervalSpinner == null || autoMaxMinutesSpinner == null || autoRegionBox == null) {
+            return;
+        }
+        Integer interval = autoIntervalSpinner.getValue();
+        Integer maxMinutes = autoMaxMinutesSpinner.getValue();
+        String region = autoRegionBox.getValue();
+        if (interval == null || maxMinutes == null || region == null) {
+            return;
+        }
+        try {
+            settings = new Settings(settings.outputDir(), settings.hotkeys(),
+                    settings.trayBalloon(), settings.sound(), settings.startMinimized(),
+                    settings.closeToTray(), settings.launchOnStartup(), settings.customPresets(),
+                    settings.cameraUpscale(), settings.keepOriginal(), settings.storageQuotaMb(),
+                    interval, region, maxMinutes);
+            settingsService.save(settings);
+        } catch (Exception e) {
+            notifications.notify("Could not save auto capture settings: " + e.getMessage());
+        }
+    }
+
+    private void updateAutoStatus() {
+        if (autoCaptureBtn == null || autoCaptureService == null) {
+            return;
+        }
+        boolean running = autoCaptureService.isRunning();
+        autoCaptureBtn.setText(running ? "Stop Auto" : "Start Auto");
+        if (!running) {
+            if (captureService.isRunning()) {
+                updateStatus("Capturing");
+            } else {
+                statusLabel.setText("Paused — buffering OFF");
+            }
+            return;
+        }
+        IntervalCaptureService.Stats stats = autoCaptureService.stats();
+        String limit = stats.maxMinutes() <= 0 ? "no limit" : stats.maxMinutes() + "min";
+        long elapsedMin = Math.max(0,
+                (System.currentTimeMillis() - stats.startedAtMillis()) / 60_000L);
+        String waiting = captureService.isRunning() ? "" : " · waiting (capture paused)";
+        statusLabel.setText("Auto: " + stats.regionId() + " every " + stats.intervalSeconds()
+                + "s · " + stats.savedFrames() + " frames · " + elapsedMin + "min / " + limit
+                + waiting);
+        if (stats.savedFrames() > 0 && stats.savedFrames() % 10 == 0) {
+            refreshTray();
+        }
+    }
+
+    private String autoCaptureStopMessage(String reason) {
+        return switch (reason) {
+            case "duration-limit" -> "Auto capture stopped — duration limit reached.";
+            case "manual", "shutdown" -> "Auto capture stopped.";
+            default -> "Auto capture stopped (" + reason.replace('-', ' ') + ").";
+        };
     }
 
     private void runStorageCleanup() {
@@ -530,6 +723,11 @@ public class Main extends Application {
             }
 
             @Override
+            public void toggleAutoCapture() {
+                Platform.runLater(() -> Main.this.toggleAutoCapture());
+            }
+
+            @Override
             public void togglePause() {
                 Platform.runLater(() -> Main.this.togglePause());
             }
@@ -582,8 +780,14 @@ public class Main extends Application {
     }
 
     private String currentStatusLine() {
-        return (captureService != null && captureService.isRunning() ? "Capturing: " : "Paused: ")
+        String line = (captureService != null && captureService.isRunning()
+                ? "Capturing: " : "Paused: ")
                 + activeProfile.name() + " / " + activeProfile.activeLayout().name();
+        if (autoCaptureService != null && autoCaptureService.isRunning()) {
+            IntervalCaptureService.Stats stats = autoCaptureService.stats();
+            line += " | Auto " + stats.intervalSeconds() + "s (" + stats.savedFrames() + ")";
+        }
+        return line;
     }
 
     private void refreshTray() {
@@ -592,7 +796,8 @@ public class Main extends Application {
         }
         try {
             trayManager.refresh(currentStatusLine(), profileService.list(),
-                    activeProfile.id(), !captureService.isRunning());
+                    activeProfile.id(), !captureService.isRunning(),
+                    autoCaptureService != null && autoCaptureService.isRunning());
         } catch (Exception e) {
             log.warn("Could not refresh tray menu", e);
         }
@@ -671,6 +876,7 @@ public class Main extends Application {
     }
 
     private void editCamera() {
+        stopAutoCapture("camera-changed");
         notifications.notify("Select the new CAMERA area inside the blue stream bounds…");
         RegionSelector.selectCamera(window(), activeProfile.streamRegion())
                 .thenAccept(opt -> Platform.runLater(() -> {
@@ -713,6 +919,7 @@ public class Main extends Application {
     }
 
     private void switchProfile(Profile profile) {
+        stopAutoCapture("profile-switch");
         try {
             activeProfile = profile;
             profileService.setActive(profile.id());
@@ -735,6 +942,7 @@ public class Main extends Application {
     }
 
     private void applyPreset(CapturePreset preset) {
+        stopAutoCapture("preset-changed");
         try {
             activeProfile = profileService.save(activeProfile.withPreset(preset));
             captureService.setBufferFps(preset.bufferFps());
@@ -849,6 +1057,9 @@ public class Main extends Application {
                 hotkeyService.stop();
             }
         } catch (Exception ignored) {
+        }
+        if (autoCaptureService != null) {
+            autoCaptureService.shutdown();
         }
         if (ioExecutor != null) {
             ioExecutor.shutdownNow();

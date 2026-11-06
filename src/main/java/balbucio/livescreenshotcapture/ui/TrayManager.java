@@ -26,6 +26,8 @@ public class TrayManager {
 
         void captureBurst();
 
+        void toggleAutoCapture();
+
         void togglePause();
 
         void openCaptures();
@@ -76,7 +78,7 @@ public class TrayManager {
     }
 
     public void refresh(String statusLine, List<Profile> profiles, String activeProfileId,
-            boolean paused) {
+            boolean paused, boolean autoCaptureRunning) {
         if (icon == null) {
             return;
         }
@@ -113,6 +115,8 @@ public class TrayManager {
         menu.add(action("Capture Camera", actions::captureCamera));
         menu.add(action("Capture Stream", actions::captureStream));
         menu.add(action("Camera Burst", actions::captureBurst));
+        menu.add(action(autoCaptureRunning ? "Stop Auto Capture" : "Start Auto Capture",
+                actions::toggleAutoCapture));
         menu.addSeparator();
         menu.add(action(paused ? "Resume Capture" : "Pause Capture", actions::togglePause));
         menu.add(action("Open Captures", actions::openCaptures));

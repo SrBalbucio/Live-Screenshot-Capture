@@ -23,16 +23,34 @@ mvn javafx:run
 
 All capture hotkeys are editable in Settings → Hotkeys. `Ctrl+1..9` always switches layouts.
 
+## Auto capture (interval)
+
+The main window has an **Auto** row: region (Camera / Full Stream), interval in seconds
+(1–3600) and an optional duration limit in minutes (0 = unlimited; default 60).
+It does not start a second capture loop — it periodically saves the newest buffered frame,
+skipping duplicates. Frames are saved at native resolution (no upscale).
+
+Each run creates its own session, ready to feed a future timelapse builder:
+
+```text
+captures\<profile>\<yyyy-MM-dd>\auto\<timestamp>_<region>\
+  session.json                 (profile, layout, interval, start/end, frameCount, endReason)
+  frames\000001_<epochMillis>.png
+```
+
+Pausing capture makes auto capture wait; switching profile, layout, camera or preset ends
+the session. The toggle is available in the main window and in the tray menu.
+
 ## Data locations (Windows)
 
 - Profiles: `%APPDATA%\LiveScreenshotCapture\profiles\*.json`
 - Settings: `%APPDATA%\LiveScreenshotCapture\settings.json`
 - Logs: `%APPDATA%\LiveScreenshotCapture\logs\app.log` (rolling, 14 days / 100 MB)
-- Captures: `captures\<profile>\<yyyy-MM-dd>\{camera,stream,burst}\` (change in Settings)
+- Captures: `captures\<profile>\<yyyy-MM-dd>\{camera,stream,burst,auto}\` (change in Settings)
 
 Only one instance runs at a time (guarded by `app.lock`).
 Captures are auto-cleaned oldest-first when over the quota in Settings → General
-(default 2048 MB, 0 = unlimited).
+(default 2048 MB, 0 = unlimited); this can also prune frames from old auto-capture sessions.
 
 ## Package (Windows)
 
